@@ -68,6 +68,14 @@ interface MatchSessionDependencies {
     timeoutMs?: number
   ) => Promise<unknown>
   persistEvent: (input: MatchScoreEventWrite) => MatchScoreEventWriteResult
+  activateContext?: (context: MatchPersistenceContext, occurredAt: string) => void
+  transitionContext?: (
+    current: MatchPersistenceContext,
+    next: MatchPersistenceContext,
+    occurredAt: string
+  ) => void
+  completeContext?: (context: MatchPersistenceContext, occurredAt: string) => void
+  invalidateContext?: (context: MatchPersistenceContext, occurredAt: string) => void
   validateContext?: (
     sourceKey: string,
     groupName: string,
@@ -87,6 +95,13 @@ interface MatchSessionDependencies {
   onError?: (code: string, error?: unknown) => void
   now?: () => Date
   monotonicNow?: () => number
+}
+
+interface MatchPersistenceContext {
+  sourceKey: string
+  groupName: string
+  contestantName: string
+  attemptNumber: number
 }
 
 interface PlaybackAnchor {
@@ -184,6 +199,7 @@ export class MatchSessionService {
 
       const requests = this.buildConnectionRequests(normalized.referees)
       if (requests.length === 0) {
+        this.activatePersistenceContext()
         this.worker = 'ready'
         this.state = 'active'
         this.publishStatus()
@@ -192,6 +208,7 @@ export class MatchSessionService {
 
       const result = await this.connectConfigured(requests)
       this.assertCurrentOperation(operationVersion)
+      this.activatePersistenceContext()
       this.state = 'active'
       this.updateWorkerStatusFromConnections()
       this.publishStatus()
@@ -311,6 +328,16 @@ export class MatchSessionService {
     try {
       await this.dependencies.requestWorker('device.resetAll', {}, 10000)
       this.assertCurrentOperation(operationVersion)
+      this.dependencies.transitionContext?.(
+        this.currentPersistenceContext(),
+        {
+          sourceKey: this.sourceKey,
+          groupName,
+          contestantName,
+          attemptNumber: this.attemptNumber
+        },
+        this.now().toISOString()
+      )
       this.groupName = groupName
       this.contestantName = contestantName
       for (const runtime of this.referees.values()) {
@@ -343,6 +370,21 @@ export class MatchSessionService {
     } finally {
       this.controlOperationPending = false
     }
+  }
+
+  completeCurrent(): boolean {
+    if (this.state !== 'active') return false
+    this.dependencies.completeContext?.(this.currentPersistenceContext(), this.now().toISOString())
+    return true
+  }
+
+  invalidateCurrent(): boolean {
+    if (this.state !== 'active') return false
+    this.dependencies.invalidateContext?.(
+      this.currentPersistenceContext(),
+      this.now().toISOString()
+    )
+    return true
   }
 
   updatePlayback(value: Record<string, unknown>): void {
@@ -536,6 +578,19 @@ export class MatchSessionService {
       }
       this.referees.set(binding.index, runtime)
       this.emitReferee(runtime)
+    }
+  }
+
+  private activatePersistenceContext(): void {
+    this.dependencies.activateContext?.(this.currentPersistenceContext(), this.now().toISOString())
+  }
+
+  private currentPersistenceContext(): MatchPersistenceContext {
+    return {
+      sourceKey: this.sourceKey,
+      groupName: this.groupName,
+      contestantName: this.contestantName,
+      attemptNumber: this.attemptNumber
     }
   }
 

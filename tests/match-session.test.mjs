@@ -20,6 +20,7 @@ function createFixture() {
   const events = []
   const errors = []
   const mediaBindings = []
+  const progress = []
   let monotonicMs = 1000
   let workerImplementation = async (method, params) => defaultWorkerResult(method, params)
   let persistenceImplementation = (input) => {
@@ -33,6 +34,14 @@ function createFixture() {
       return workerImplementation(method, params)
     },
     persistEvent: (input) => persistenceImplementation(input),
+    activateContext: (context, occurredAt) =>
+      progress.push({ type: 'activate', context, occurredAt }),
+    transitionContext: (current, next, occurredAt) =>
+      progress.push({ type: 'transition', current, next, occurredAt }),
+    completeContext: (context, occurredAt) =>
+      progress.push({ type: 'complete', context, occurredAt }),
+    invalidateContext: (context, occurredAt) =>
+      progress.push({ type: 'invalidate', context, occurredAt }),
     validateContext: (...args) => contextImplementation(...args),
     upsertMediaBinding: (...args) => {
       mediaBindings.push(args)
@@ -54,6 +63,7 @@ function createFixture() {
     events,
     errors,
     mediaBindings,
+    progress,
     advance: (milliseconds) => {
       monotonicMs += milliseconds
     },
@@ -115,6 +125,16 @@ test('connects bindings and publishes explicit session state', async () => {
   assert.equal(result.status.worker, 'ready')
   assert.equal(fixture.statuses[0].state, 'starting')
   assert.equal(fixture.statuses.at(-1).state, 'active')
+  assert.deepEqual(fixture.progress[0], {
+    type: 'activate',
+    context: {
+      sourceKey: startInput.sourceKey,
+      groupName: 'Final',
+      contestantName: 'Alice',
+      attemptNumber: 1
+    },
+    occurredAt: '2026-07-18T12:00:00.000Z'
+  })
 })
 
 test('rejects unconfigured contexts before controlling devices', async () => {
@@ -257,8 +277,29 @@ test('keeps in-flight events on the old contestant while switching context', asy
 
   releaseReset()
   await switching
+  assert.equal(fixture.progress.at(-1).type, 'transition')
+  assert.equal(fixture.progress.at(-1).current.contestantName, 'Alice')
+  assert.equal(fixture.progress.at(-1).next.contestantName, 'Bob')
   assert.deepEqual(fixture.contexts.at(-1), { groupName: 'Final', contestantName: 'Bob' })
   assert.deepEqual(fixture.updates.at(-1).score, { total: 0, plus: 0, minus: 0, penalty: 0 })
+})
+
+test('completes only an active persisted context', async () => {
+  const fixture = createFixture()
+  assert.equal(fixture.service.completeCurrent(), false)
+  await fixture.service.start(startInput)
+  assert.equal(fixture.service.completeCurrent(), true)
+  assert.equal(fixture.progress.at(-1).type, 'complete')
+  assert.equal(fixture.progress.at(-1).context.contestantName, 'Alice')
+})
+
+test('invalidates only an active persisted context', async () => {
+  const fixture = createFixture()
+  assert.equal(fixture.service.invalidateCurrent(), false)
+  await fixture.service.start(startInput)
+  assert.equal(fixture.service.invalidateCurrent(), true)
+  assert.equal(fixture.progress.at(-1).type, 'invalidate')
+  assert.equal(fixture.progress.at(-1).context.contestantName, 'Alice')
 })
 
 test('rejects concurrent starts and cancels a start when stopping wins', async () => {

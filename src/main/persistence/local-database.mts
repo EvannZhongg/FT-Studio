@@ -16,6 +16,10 @@ import {
   type MatchScoreEventWriteResult,
   type StoredScoreEvent
 } from './repositories/match-repository.mts'
+import {
+  MatchProgressRepository,
+  type MatchProgressContext
+} from './repositories/match-progress-repository.mts'
 import { SettingsRepository } from './repositories/settings-repository.mts'
 import { StageRepository } from './repositories/stage-repository.mts'
 import { SqliteConnection } from './sqlite/connection.mts'
@@ -33,6 +37,7 @@ export class LocalDatabase {
   private readonly connection: SqliteConnection
   private readonly competitions: CompetitionRepository
   private readonly matches: MatchRepository
+  private readonly matchProgress: MatchProgressRepository
   private readonly settings: SettingsRepository
   private readonly stages: StageRepository
   private readonly replay: ReplayQuery
@@ -43,6 +48,7 @@ export class LocalDatabase {
     this.connection = new SqliteConnection(databasePath, backupRoot)
     this.competitions = new CompetitionRepository(this.connection)
     this.matches = new MatchRepository(this.connection)
+    this.matchProgress = new MatchProgressRepository(this.connection)
     this.settings = new SettingsRepository(this.connection)
     this.stages = new StageRepository(this.connection)
     this.replay = new ReplayQuery(this.connection)
@@ -152,6 +158,26 @@ export class LocalDatabase {
 
   appendMatchScoreEvent(input: MatchScoreEventWrite): MatchScoreEventWriteResult {
     return this.matches.appendScoreEvent(input)
+  }
+
+  activateMatchSession(context: MatchProgressContext, occurredAt: string): void {
+    this.matchProgress.activate(context, occurredAt)
+  }
+
+  transitionMatchSession(
+    current: MatchProgressContext,
+    next: MatchProgressContext,
+    occurredAt: string
+  ): void {
+    this.matchProgress.completeAndActivate(current, next, occurredAt)
+  }
+
+  completeMatchSession(context: MatchProgressContext, occurredAt: string): void {
+    this.matchProgress.complete(context, occurredAt)
+  }
+
+  invalidateMatchSession(context: MatchProgressContext, occurredAt: string): void {
+    this.matchProgress.invalidate(context, occurredAt)
   }
 
   upsertMediaBinding(

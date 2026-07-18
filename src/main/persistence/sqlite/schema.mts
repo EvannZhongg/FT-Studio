@@ -1,4 +1,4 @@
-export const LATEST_SCHEMA_VERSION = 2
+export const LATEST_SCHEMA_VERSION = 3
 export const DATABASE_APPLICATION_ID = 0x4654454e
 
 export const SCHEMA_SQL = `
@@ -79,6 +79,19 @@ export const SCHEMA_SQL = `
     rule_version TEXT NOT NULL,
     UNIQUE (contestant_id, attempt_number)
   ) STRICT;
+
+  CREATE TABLE match_session_transitions (
+    id TEXT PRIMARY KEY,
+    match_session_id TEXT NOT NULL REFERENCES match_sessions(id) ON DELETE CASCADE,
+    from_status TEXT NOT NULL
+      CHECK (from_status IN ('pending', 'active', 'completed', 'invalidated')),
+    to_status TEXT NOT NULL
+      CHECK (to_status IN ('pending', 'active', 'completed', 'invalidated')),
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX match_session_transitions_session_time
+    ON match_session_transitions(match_session_id, created_at, id);
 
   CREATE TABLE score_events (
     event_id TEXT PRIMARY KEY,

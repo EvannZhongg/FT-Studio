@@ -147,6 +147,13 @@ test('configures multiple stages, attempts and stable ordering', () => {
       3
     )
     assert.equal(stages.list(competition.source_key)[0].status, 'active')
+    assert.equal(
+      queryDatabase(
+        database,
+        "SELECT COUNT(*) AS count FROM match_session_transitions WHERE reason = 'score_event'"
+      ).count,
+      1
+    )
   } finally {
     database.close()
   }

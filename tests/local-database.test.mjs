@@ -68,6 +68,7 @@ test('creates the versioned local schema', () => {
       'referees',
       'device_bindings',
       'match_sessions',
+      'match_session_transitions',
       'score_events',
       'media_bindings',
       'app_settings',

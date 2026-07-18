@@ -268,6 +268,7 @@ export const useRefereeStore = defineStore('referee', {
     async stopMatch() {
       if (stopMatchPromise) return stopMatchPromise
       const pending = (async () => {
+        let completed = false
         try {
           let result
           if (window.ftEngine?.match) {
@@ -275,22 +276,27 @@ export const useRefereeStore = defineStore('referee', {
           } else {
             result = {
               ok: true,
-              worker: { status: 'skipped' }
+              worker: { status: 'skipped' },
+              sessionFinalized: true
             }
           }
+          completed = result.sessionFinalized !== false
           if (!result.ok) console.warn('Some device owners did not stop cleanly', result)
           return result
         } catch (e) {
           console.error('Stop match failed:', e)
           return {
             ok: false,
-            worker: { status: 'error', error: 'MATCH_STOP_FAILED' }
+            worker: { status: 'error', error: 'MATCH_STOP_FAILED' },
+            sessionFinalized: false
           }
         } finally {
-          this.matchActive = false
-          if (!window.ftEngine?.match) this.matchStatus = initialMatchStatus()
-          this.referees = {}
-          this.currentContext = { groupName: '', contestantName: '' }
+          if (completed) {
+            this.matchActive = false
+            if (!window.ftEngine?.match) this.matchStatus = initialMatchStatus()
+            this.referees = {}
+            this.currentContext = { groupName: '', contestantName: '' }
+          }
         }
       })().finally(() => {
         if (stopMatchPromise === pending) stopMatchPromise = null

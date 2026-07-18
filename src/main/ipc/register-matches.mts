@@ -64,6 +64,13 @@ export function registerMatchIpc(
 
   ipcMain.handle(IPC_CHANNELS.match.stop, async (event) => {
     context.assertMainSender(event)
-    return stopDeviceSessions('score-page-exit')
+    matchSession.completeCurrent()
+    return { ...(await stopDeviceSessions('score-page-exit')), sessionFinalized: true }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.invalidate, async (event) => {
+    context.assertMainSender(event)
+    matchSession.invalidateCurrent()
+    return { ...(await stopDeviceSessions('invalidate-session')), sessionFinalized: true }
   })
 }

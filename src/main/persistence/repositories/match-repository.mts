@@ -76,6 +76,24 @@ export class MatchRepository {
           "UPDATE competitions SET status = 'active', updated_at = ? WHERE id = ? AND status = 'draft'"
         )
         .run(input.event.systemTime, context.competitionId)
+      if (context.matchStatus === 'pending') {
+        database
+          .prepare(
+            `
+            INSERT OR IGNORE INTO match_session_transitions (
+              id, match_session_id, from_status, to_status, reason, created_at
+            ) VALUES (?, ?, 'pending', 'active', 'score_event', ?)
+          `
+          )
+          .run(
+            stableDatabaseId(context.matchSessionId, 'transition', 'score-event'),
+            context.matchSessionId,
+            input.event.systemTime
+          )
+        database
+          .prepare("UPDATE contestants SET status = 'active' WHERE id = ?")
+          .run(context.contestantId)
+      }
       database
         .prepare(
           `
@@ -161,12 +179,19 @@ export class MatchRepository {
   private resolveContext(
     database: DatabaseSync,
     input: MatchScoreEventWrite
-  ): { competitionId: string; stageId: string; matchSessionId: string; refereeId: string } | null {
+  ): {
+    competitionId: string
+    stageId: string
+    contestantId: string
+    matchSessionId: string
+    matchStatus: string
+    refereeId: string
+  } | null {
     const row = database
       .prepare(
         `
-      SELECT c.id AS competition_id, s.id AS stage_id,
-        ms.id AS match_session_id, r.id AS referee_id
+      SELECT c.id AS competition_id, s.id AS stage_id, p.id AS contestant_id,
+        ms.id AS match_session_id, ms.status AS match_status, r.id AS referee_id
       FROM competitions c
       JOIN stages s ON s.competition_id = c.id
       JOIN competition_groups g ON g.stage_id = s.id
@@ -191,7 +216,9 @@ export class MatchRepository {
       | {
           competition_id: string
           stage_id: string
+          contestant_id: string
           match_session_id: string
+          match_status: string
           referee_id: string
         }
       | undefined
@@ -199,7 +226,9 @@ export class MatchRepository {
       ? {
           competitionId: row.competition_id,
           stageId: row.stage_id,
+          contestantId: row.contestant_id,
           matchSessionId: row.match_session_id,
+          matchStatus: row.match_status,
           refereeId: row.referee_id
         }
       : null

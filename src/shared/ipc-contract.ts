@@ -51,6 +51,7 @@ export const IPC_CHANNELS = {
     listScored: 'match:list-scored',
     reset: 'match:reset',
     stop: 'match:stop',
+    invalidate: 'match:invalidate',
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
     statusUpdated: 'match:status-updated'
@@ -147,6 +148,7 @@ export interface DeviceShutdownStep {
 export interface MatchStopResult {
   ok: boolean
   worker: DeviceShutdownStep
+  sessionFinalized?: boolean
 }
 
 export interface DeviceRenameRequest {
@@ -315,6 +317,7 @@ export interface FtEngineApi {
     listScored: (sourceKey: string, groupName: string) => Promise<string[]>
     reset: () => Promise<unknown>
     stop: () => Promise<MatchStopResult>
+    invalidate: () => Promise<MatchStopResult>
     onRefereeUpdated: (callback: (update: MatchRefereeUpdate) => void) => Unsubscribe
     onContextUpdated: (
       callback: (context: { groupName: string; contestantName: string }) => void

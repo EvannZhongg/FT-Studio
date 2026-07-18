@@ -42,6 +42,7 @@ const IPC_CHANNELS = {
     listScored: 'match:list-scored',
     reset: 'match:reset',
     stop: 'match:stop',
+    invalidate: 'match:invalidate',
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
     statusUpdated: 'match:status-updated'
@@ -131,6 +132,7 @@ const ftEngine = {
       ipcRenderer.invoke(IPC_CHANNELS.match.listScored, sourceKey, groupName),
     reset: () => ipcRenderer.invoke(IPC_CHANNELS.match.reset),
     stop: () => ipcRenderer.invoke(IPC_CHANNELS.match.stop),
+    invalidate: () => ipcRenderer.invoke(IPC_CHANNELS.match.invalidate),
     onRefereeUpdated: (callback) => subscribe(IPC_CHANNELS.match.refereeUpdated, callback),
     onContextUpdated: (callback) => subscribe(IPC_CHANNELS.match.contextUpdated, callback),
     onStatusUpdated: (callback) => subscribe(IPC_CHANNELS.match.statusUpdated, callback)

@@ -102,6 +102,22 @@ const matchSession = new MatchSessionService({
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
     return localDatabase.appendMatchScoreEvent(input)
   },
+  activateContext: (context, occurredAt) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    localDatabase.activateMatchSession(context, occurredAt)
+  },
+  transitionContext: (current, next, occurredAt) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    localDatabase.transitionMatchSession(current, next, occurredAt)
+  },
+  completeContext: (context, occurredAt) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    localDatabase.completeMatchSession(context, occurredAt)
+  },
+  invalidateContext: (context, occurredAt) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    localDatabase.invalidateMatchSession(context, occurredAt)
+  },
   validateContext: (...args) => {
     if (!localDatabase) return false
     return localDatabase.hasMatchContext(...args)

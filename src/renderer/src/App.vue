@@ -108,7 +108,8 @@ const handleViewReport = (dirName) => {
 }
 
 const handleStopMatch = async () => {
-  await store.stopMatch()
+  const result = await store.stopMatch()
+  if (result.sessionFinalized === false) return
   // 停止比赛后返回默认首页
   returnToHome('default')
 }
