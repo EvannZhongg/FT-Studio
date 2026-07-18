@@ -42,3 +42,28 @@ test('delegates settings persistence to its repository', () => {
   assert.equal(repository.includes('FROM app_settings'), true)
   assert.equal(repository.includes('SETTINGS_KEY_INVALID'), true)
 })
+
+test('keeps domain SQL in repositories and read queries', () => {
+  const facade = source('src/main/persistence/local-database.mts')
+  const competition = source('src/main/persistence/repositories/competition-repository.mts')
+  const match = source('src/main/persistence/repositories/match-repository.mts')
+  const replay = source('src/main/persistence/queries/replay-query.mts')
+  const report = source('src/main/persistence/queries/report-query.mts')
+  const exportQuery = source('src/main/persistence/queries/export-query.mts')
+
+  assert.equal(facade.includes('.prepare('), false)
+  for (const collaborator of [
+    'CompetitionRepository',
+    'MatchRepository',
+    'ReplayQuery',
+    'ReportQuery',
+    'ExportQuery'
+  ]) {
+    assert.equal(facade.includes(`new ${collaborator}`), true, collaborator)
+  }
+  assert.equal(competition.includes('INSERT INTO competitions'), true)
+  assert.equal(match.includes('INSERT OR IGNORE INTO score_events'), true)
+  assert.equal(replay.includes('delta_penalty'), true)
+  assert.equal(report.includes('ROW_NUMBER() OVER'), true)
+  assert.equal(exportQuery.includes("database.exec('BEGIN')"), true)
+})

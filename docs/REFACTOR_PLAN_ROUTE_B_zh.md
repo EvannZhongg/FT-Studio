@@ -1,6 +1,6 @@
 # FT Engine 路线 B：剩余重构计划
 
-> 更新基线：2026-07-18。新约束：不兼容任何旧项目、旧 CSV 或 legacy 数据目录。本文只保留剩余工作，已完成历史见 [当前架构](./ARCHITECTURE_CURRENT_zh.md)。
+> 更新基线：2026-07-19。新约束：不兼容任何旧项目、旧 CSV 或 legacy 数据目录。本文只保留剩余工作，已完成历史见 [当前架构](./ARCHITECTURE_CURRENT_zh.md)。
 
 ## 1. 当前切换点
 
@@ -8,13 +8,14 @@
 
 FastAPI、Renderer Axios fallback、backend 进程管理、旧项目 importer、shadow event、旧 Python 实现和构建资源已删除。干净 schema 不包含 `legacy_imports`、`legacy_ref_count` 或 `source_referee_index`；旧数据库只备份后重建，不迁移数据。Python 测试只保留 Platform Worker，安装包只包含 `local-platform-worker`。
 
+SQLite schema 与连接生命周期已经独立；Competition/Match Repository 和 Replay/Report/Export Query 已从 `LocalDatabase` 拆出，facade 只保留连接生命周期和稳定方法委托。
+
 ## 2. P0：补齐赛事领域并拆分 Main
 
 1. 将默认 `Main` Stage 扩展为正式 Stage service，支持排序、尝试次数和 Competition/Stage/MatchSession 状态流转。
 2. 分域 IPC 注册已拆到 `src/main/ipc/`；继续将 `src/main/index.js` 拆为 bootstrap、窗口、设备/平台和 Overlay 生命周期模块。
-3. SQLite schema、连接/备份重建和 Settings Repository 已拆出；继续将 `LocalDatabase` facade 拆成 Competition/Match Repository 与 Replay/Report/Export Query。
-4. 将 `MatchSessionService` 的设备控制、媒体锚点和状态通知拆为协作者。
-5. 移除共享 DTO 中的 `dir_name`、`project_name`、`pri_addr` 等过渡命名，使用稳定领域 ID。
+3. 将 `MatchSessionService` 的设备控制、媒体锚点和状态通知拆为协作者。
+4. 移除共享 DTO 中的 `dir_name`、`project_name`、`pri_addr` 等过渡命名，使用稳定领域 ID。
 
 目标目录和依赖方向见 [目标架构](./ARCHITECTURE_TARGET_zh.md)。
 
