@@ -60,6 +60,10 @@ const IPC_CHANNELS = {
     list: 'projects:list',
     delete: 'projects:delete'
   },
+  exports: {
+    saveDetails: 'exports:save-details',
+    saveReport: 'exports:save-report'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -139,6 +143,10 @@ const ftEngine = {
     get: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.projects.get, sourceKey),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),
     delete: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.projects.delete, sourceKey)
+  },
+  exports: {
+    saveDetails: (request) => ipcRenderer.invoke(IPC_CHANNELS.exports.saveDetails, request),
+    saveReport: (request) => ipcRenderer.invoke(IPC_CHANNELS.exports.saveReport, request)
   },
   overlay: {
     open: (options) => ipcRenderer.send(IPC_CHANNELS.overlay.open, options),

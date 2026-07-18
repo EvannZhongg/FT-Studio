@@ -1,5 +1,5 @@
-import { app, shell, BrowserWindow, ipcMain, screen, globalShortcut } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, dialog, ipcMain, screen, globalShortcut } from 'electron'
+import { basename, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
@@ -20,6 +20,7 @@ import { WorkerClient } from './worker/worker-client.mjs'
 import { DeviceLifecycle } from './match/device-lifecycle.mjs'
 import { MatchSessionService } from './match/match-session.mts'
 import { CompetitionService } from './application/competitions/competition-service.mts'
+import { ExportService, ExportServiceError } from './application/exports/export-service.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 import {
   deleteLegacyProjectSource,
@@ -178,6 +179,18 @@ const competitionService = new CompetitionService({
     return localDatabase.deleteCompetition(sourceKey)
   }
 })
+
+const exportService = new ExportService(
+  {
+    getSnapshot: (sourceKey) => {
+      if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+      return localDatabase.getCompetitionExportSnapshot(sourceKey)
+    }
+  },
+  {
+    write: (outputPath, data) => fs.promises.writeFile(outputPath, data)
+  }
+)
 
 async function stopDeviceSessions(reason) {
   const transitioned = matchSession.beginStopping()
@@ -468,6 +481,31 @@ function openAllowedExternalUrl(value) {
   void shell.openExternal(url).catch((error) => {
     console.warn('[Electron] Failed to open external URL:', error.message)
   })
+}
+
+async function saveExportArtifact(buildArtifact) {
+  try {
+    const artifact = buildArtifact()
+    const extensions = artifact.mimeType === 'application/zip' ? ['zip'] : ['csv']
+    const options = {
+      title: 'Save export',
+      defaultPath: join(app.getPath('documents'), artifact.fileName),
+      filters: [
+        { name: artifact.mimeType === 'application/zip' ? 'ZIP archive' : 'CSV file', extensions }
+      ]
+    }
+    const selection =
+      mainWindow && !mainWindow.isDestroyed()
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(options)
+    if (selection.canceled || !selection.filePath) return { status: 'cancelled' }
+    await exportService.writeArtifact(artifact, selection.filePath)
+    return { status: 'saved', fileName: basename(selection.filePath) }
+  } catch (error) {
+    const code = error instanceof ExportServiceError ? error.code : 'EXPORT_WRITE_FAILED'
+    console.error('[Electron] Export failed:', code, error)
+    return { status: 'error', error: code }
+  }
 }
 
 function createWindow() {
@@ -850,6 +888,16 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC_CHANNELS.projects.delete, (event, sourceKey) => {
     assertMainSender(event)
     return competitionService.delete(sourceKey)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.exports.saveDetails, (event, request) => {
+    assertMainSender(event)
+    return saveExportArtifact(() => exportService.buildDetails(request))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.exports.saveReport, (event, request) => {
+    assertMainSender(event)
+    return saveExportArtifact(() => exportService.buildReport(request))
   })
 
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {

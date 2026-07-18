@@ -23,7 +23,7 @@ ft-engine.db
 ft-engine.db-shm
 ft-engine.db-wal
 backups/
-exports/
+/exports/
 update.md
 esp32.c
 

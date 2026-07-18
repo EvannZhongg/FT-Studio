@@ -19,6 +19,10 @@ import type {
   CompetitionListItem,
   CompetitionRefereeConfig
 } from '../../shared/contracts/competition.mts'
+import type {
+  CompetitionExportSnapshot,
+  ExportScoreEvent
+} from '../application/exports/export-service.mts'
 
 export const LATEST_SCHEMA_VERSION = 5
 
@@ -670,6 +674,87 @@ export class LocalDatabase {
       .prepare('DELETE FROM competitions WHERE id = ?')
       .run(source.competitionId)
     return Number(result.changes) === 1
+  }
+
+  getCompetitionExportSnapshot(sourceKey: string): CompetitionExportSnapshot | null {
+    const database = this.requireDatabase()
+    const source = this.resolveCompetitionSourceFrom(database, sourceKey)
+    if (!source) return null
+
+    database.exec('BEGIN')
+    try {
+      const config = this.getCompetitionConfig(sourceKey)
+      const stage = database
+        .prepare(
+          `
+        SELECT id FROM stages WHERE competition_id = ? ORDER BY position LIMIT 1
+      `
+        )
+        .get(source.competitionId) as { id: string } | undefined
+      if (!config || !stage) {
+        database.exec('COMMIT')
+        return null
+      }
+      const rows = database
+        .prepare(
+          `
+        SELECT g.name AS group_name, p.name AS contestant_name,
+          r.source_referee_index AS referee_index,
+          e.event_id, e.system_time, e.total_plus, e.total_minus,
+          e.current_total, e.major_penalty
+        FROM score_events e
+        JOIN match_sessions ms ON ms.id = e.match_session_id
+        JOIN contestants p ON p.id = ms.contestant_id
+        JOIN competition_groups g ON g.id = p.group_id
+        JOIN referees r ON r.id = e.referee_id
+        WHERE g.stage_id = ?
+        ORDER BY g.position, p.position, r.source_referee_index,
+          e.system_time, e.event_id
+      `
+        )
+        .all(stage.id) as Array<Record<string, string | number>>
+      const events = new Map<string, ExportScoreEvent[]>()
+      for (const row of rows) {
+        const key = exportEventKey(
+          String(row.group_name),
+          String(row.contestant_name),
+          Number(row.referee_index)
+        )
+        const values = events.get(key) || []
+        values.push({
+          eventId: String(row.event_id),
+          systemTime: String(row.system_time),
+          totalPlus: Number(row.total_plus),
+          totalMinus: Number(row.total_minus),
+          currentTotal: Number(row.current_total),
+          majorPenalty: Number(row.major_penalty)
+        })
+        events.set(key, values)
+      }
+      const snapshot: CompetitionExportSnapshot = {
+        sourceKey: config.source_key,
+        competitionName: config.project_name,
+        groups: config.groups.map((group) => ({
+          name: group.name,
+          refCount: group.refCount,
+          contestants: group.players.map((contestantName) => ({
+            name: contestantName,
+            referees: group.referees.map((referee) => ({
+              index: referee.index,
+              name: referee.name,
+              mode: referee.mode,
+              events:
+                events.get(exportEventKey(group.name, contestantName, referee.index)) || []
+            }))
+          }))
+        }))
+      }
+      database.exec('COMMIT')
+      return snapshot
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
   }
 
   isLegacyCompetition(sourceKey: string): boolean {
@@ -1828,6 +1913,10 @@ function validateLegacyImport(input: LegacyProjectImport): void {
 function legacyRefereeIndex(connectionId: string): number {
   const match = /^legacy-ref-(\d+)-/.exec(connectionId)
   return match ? Number(match[1]) : 0
+}
+
+function exportEventKey(groupName: string, contestantName: string, refereeIndex: number): string {
+  return JSON.stringify([groupName, contestantName, refereeIndex])
 }
 
 function stableDatabaseId(...parts: string[]): string {

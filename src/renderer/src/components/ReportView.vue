@@ -147,7 +147,11 @@
              </div>
              <div class="modal-actions">
                 <button class="btn-cancel" @click="showExportModal = false">{{ $t('btn_cancel') }}</button>
-                <button class="btn-confirm" @click="confirmBatchExport" :disabled="selectedPlayers.length === 0">
+                <button
+                  class="btn-confirm"
+                  @click="confirmBatchExport"
+                  :disabled="selectedPlayers.length === 0 || (!exportOpts.txt && !exportOpts.srt)"
+                >
                 {{ $t('rpt_btn_dl_zip') }}
                 </button>
              </div>
@@ -421,82 +425,29 @@ const toggleSelectAll = (e) => {
 const confirmBatchExport = async () => {
   if (selectedPlayers.value.length === 0) return
 
-  const success = await store.exportScoreDetails(
+  const result = await store.exportScoreDetails(
+    props.projectDir,
     currentGroup.value.name,
     selectedPlayers.value,
     exportOpts.value
   )
 
-  if (success) {
+  if (result.status === 'saved') {
     showExportModal.value = false
-  } else {
+  } else if (result.status === 'error') {
     alert(t('rpt_msg_fail'))
   }
 }
 
-const formatRawCsvCell = (detail) => {
-  if (!detail || detail.total === '-') return '-'
-
-  const total = Number(detail.total) || 0
-  const plus = Number(detail.plus) || 0
-  const minus = Number(detail.minus) || 0
-  const penalty = Number(detail.penalty) || 0
-
-  return `${total} (+${plus}/-${minus}/-${penalty})`
-}
-
 // --- CSV 导出逻辑 ---
-const exportCSV = () => {
+const exportCSV = async () => {
   if (!currentGroup.value) return
-
-  let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-  const refCount = currentGroup.value.refCount
-
-  if (viewMode.value === 'SCALED') {
-    let header = ['Rank', 'Contestant']
-    for(let i=1; i<=refCount; i++) header.push(`${getRefName(i)} (Scaled)`)
-
-    // 导出时也包含扣分列
-    if (enablePenalty.value) header.push('Major Penalty')
-
-    header.push('Final Score')
-    csvContent += header.join(',') + "\n"
-
-    sortedScaledRows.value.forEach((row, idx) => {
-      let line = [idx + 1, row.player]
-      for(let i=1; i<=refCount; i++) line.push(row.scaledScores[i].toFixed(2))
-
-      if (enablePenalty.value) line.push(row.penaltyVal)
-
-      line.push(row.finalScore.toFixed(2))
-      csvContent += line.join(',') + "\n"
-    })
-
-  } else {
-    let header = ['Contestant']
-    for(let i=1; i<=refCount; i++) header.push(getRefName(i))
-    header.push('Average Score')
-    csvContent += header.join(',') + "\n"
-
-    currentGroup.value.players.forEach(player => {
-      let line = [player]
-      for(let i=1; i<=refCount; i++) {
-        const d = getRawDetail(player, i)
-        line.push(formatRawCsvCell(d))
-      }
-      line.push(getRawAverage(player).toFixed(2))
-      csvContent += line.join(',') + "\n"
-    })
-  }
-
-  const encodedUri = encodeURI(csvContent)
-  const link = document.createElement("a")
-  link.setAttribute("href", encodedUri)
-  const safeName = currentGroup.value.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()
-  link.setAttribute("download", `${safeName}_${viewMode.value.toLowerCase()}.csv`)
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  const result = await store.exportReport(props.projectDir, currentGroup.value.name, {
+    view: viewMode.value,
+    scaleRatio: scaleRatio.value,
+    includePenalty: enablePenalty.value
+  })
+  if (result.status === 'error') alert(t('rpt_msg_fail'))
 }
 </script>
 

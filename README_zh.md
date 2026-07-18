@@ -10,9 +10,9 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 - Vue Renderer 的窗口、Overlay、设备、实时比赛和主要历史读取使用受控 IPC。
 - Electron Main 中的 `MatchSessionService` 已接入 Platform Worker、TypeScript 计分域和 SQLite 原子实时事件写入，并向计分页持续发布保存、Worker 和媒体状态。
-- 当前工作树的 `CompetitionService` 已将项目创建、配置、继续、列表和删除迁入 Main/SQLite；新项目不再创建 legacy 目录。
-- Legacy FastAPI 当前主要承担 CSV/SRT/ZIP 导出和少量 REST fallback；其他硬件、项目、媒体和 WebSocket 路由已无 Electron 主路径调用点。
-- SQLite schema v5 已支持原生项目、历史读取和原子实时事件；多阶段和 SQLite 原生导出尚未完成。后续不迁移任何旧数据，legacy runtime/importer 将直接删除。
+- `CompetitionService` 已将项目创建、配置、继续、列表和删除迁入 Main/SQLite；新项目不再创建 legacy 目录。
+- 当前工作树的 `ExportService` 从 SQLite 只读快照生成报表 CSV 和明细 ZIP/CSV/SRT，再通过 Electron 系统保存对话框写入文件。
+- Legacy FastAPI 当前只剩少量 Renderer fallback 和无主路径调用的路由。多阶段赛事尚未完成；下一阶段不迁移任何旧数据，直接删除 legacy runtime/importer。
 
 实际调用链见 [当前架构](docs/ARCHITECTURE_CURRENT_zh.md)，下一步见 [路线 B 剩余重构计划](docs/REFACTOR_PLAN_ROUTE_B_zh.md)。不要依据目标文档假定 localhost backend 已经移除。
 
@@ -100,7 +100,7 @@ npm run build:mac
 
 ~~~text
 src/main/
-  application/        Competition、Match、Settings 等应用服务
+  application/        Competition、Export、Match、Settings 等应用服务
   domain/             TypeScript 计分领域
   persistence/        SQLite Repository；当前仍混有待删除 importer
   worker/             WorkerClient
@@ -111,7 +111,7 @@ src/renderer/         Vue 界面
 workers/local_platform_worker/
                       BLE、USB 和窗口 Worker
 server.py             待删除的 FastAPI backend
-utils/                待删除 legacy 模块与少量运行工具
+utils/                随 FastAPI 一并删除的 legacy 模块
 tests/                Node 与 Python 回归测试
 ~~~
 

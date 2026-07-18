@@ -5,6 +5,11 @@ import type {
   CompetitionListItem,
   CompetitionMode
 } from './contracts/competition.mts'
+import type {
+  DetailExportRequest,
+  ExportSaveResult,
+  ReportExportRequest
+} from './contracts/export.mts'
 
 export const IPC_CHANNELS = {
   app: {
@@ -62,6 +67,10 @@ export const IPC_CHANNELS = {
     get: 'projects:get',
     list: 'projects:list',
     delete: 'projects:delete'
+  },
+  exports: {
+    saveDetails: 'exports:save-details',
+    saveReport: 'exports:save-report'
   },
   overlay: {
     open: 'overlay:open',
@@ -346,6 +355,10 @@ export interface FtEngineApi {
     get: (sourceKey: string) => Promise<CompetitionConfig | null>
     list: () => Promise<CompetitionListItem[]>
     delete: (sourceKey: string) => Promise<boolean>
+  }
+  exports: {
+    saveDetails: (request: DetailExportRequest) => Promise<ExportSaveResult>
+    saveReport: (request: ReportExportRequest) => Promise<ExportSaveResult>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

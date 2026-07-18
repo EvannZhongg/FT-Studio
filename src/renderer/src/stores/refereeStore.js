@@ -517,42 +517,37 @@ export const useRefereeStore = defineStore('referee', {
         return false
       }
     },
-    async exportScoreDetails(groupName, players, options) {
+    async exportScoreDetails(sourceKey, groupName, players, options) {
       try {
-        const response = await axios.post(
-          `${this.apiBase}/api/export/details`,
-          {
-            group: groupName,
-            players: players,
-            options: options
+        if (!window.ftEngine?.exports) throw new Error('LOCAL_EXPORTS_UNAVAILABLE')
+        return await window.ftEngine.exports.saveDetails({
+          scope: {
+            sourceKey,
+            groupNames: [groupName],
+            contestantNames: players
           },
-          {
-            responseType: 'blob' // 关键：接收二进制流
-          }
-        )
-
-        // 触发浏览器下载
-        const url = window.URL.createObjectURL(new Blob([response.data]))
-        const link = document.createElement('a')
-        link.href = url
-
-        // 尝试从 header 获取文件名，或者自己生成
-        const contentDisposition = response.headers['content-disposition']
-        let fileName = `Export_${groupName}.zip`
-        if (contentDisposition) {
-          const match = contentDisposition.match(/filename="?([^"]+)"?/)
-          if (match && match[1]) fileName = match[1]
-        }
-
-        link.setAttribute('download', fileName)
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-
-        return true
+          includeCsv: Boolean(options.txt),
+          includeSrt: Boolean(options.srt),
+          srtMode: options.srt_mode
+        })
       } catch (e) {
         console.error('Export failed', e)
-        return false
+        return { status: 'error', error: 'EXPORT_WRITE_FAILED' }
+      }
+    },
+    async exportReport(sourceKey, groupName, options) {
+      try {
+        if (!window.ftEngine?.exports) throw new Error('LOCAL_EXPORTS_UNAVAILABLE')
+        return await window.ftEngine.exports.saveReport({
+          sourceKey,
+          groupName,
+          view: options.view,
+          scaleRatio: options.scaleRatio,
+          includePenalty: options.includePenalty
+        })
+      } catch (e) {
+        console.error('Report export failed', e)
+        return { status: 'error', error: 'EXPORT_WRITE_FAILED' }
       }
     }
   }

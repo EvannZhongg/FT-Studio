@@ -10,9 +10,9 @@ Route B is being introduced incrementally. The current application is a working 
 
 - Window, overlay, device, live-match, and primary historical reads use constrained IPC.
 - Electron Main's `MatchSessionService` connects the Platform Worker, TypeScript scoring domain, and atomic live SQLite event writes while publishing continuous save/worker/media status to the scoring UI.
-- The working tree's `CompetitionService` moves project creation, configuration, resume, list, and deletion into Main/SQLite; new projects no longer create legacy directories.
-- The legacy FastAPI backend now mainly serves CSV/SRT/ZIP exports and a few REST fallbacks. Other hardware, project, media, and WebSocket routes are outside Electron's primary paths.
-- SQLite schema v5 supports native projects, historical reads, and atomic live events. Multi-stage workflows and native exports remain unfinished. Future refactoring will delete legacy runtime/importer code without migrating old data.
+- `CompetitionService` moves project creation, configuration, resume, list, and deletion into Main/SQLite; new projects no longer create legacy directories.
+- The working tree's `ExportService` builds report CSV and detail ZIP/CSV/SRT from a read-only SQLite snapshot, then writes through Electron's native save dialog.
+- The legacy FastAPI backend now serves only a few Renderer fallbacks and otherwise dormant routes. Multi-stage workflows remain unfinished; the next refactor deletes the legacy runtime/importer without migrating old data.
 
 See [current architecture](docs/ARCHITECTURE_CURRENT_zh.md) and the [remaining Route B plan](docs/REFACTOR_PLAN_ROUTE_B_zh.md). Do not assume the localhost backend has already been removed.
 
@@ -84,7 +84,7 @@ Typical packaged locations are `%APPDATA%/FT Engine/` on Windows and `~/Library/
 ## Key Directories
 
 ~~~text
-src/main/application/            Competition, match, and settings services
+src/main/application/            Competition, export, match, and settings services
 src/main/domain/                 TypeScript scoring domain
 src/main/persistence/            SQLite repositories; importer pending deletion
 src/main/worker/                 WorkerClient
@@ -94,7 +94,7 @@ src/shared/                      IPC and domain DTO contracts
 src/renderer/                    Vue UI
 workers/local_platform_worker/   BLE, USB, and window worker
 server.py                        FastAPI backend pending deletion
-utils/                           Legacy modules and remaining runtime utilities
+utils/                           Legacy modules pending deletion with FastAPI
 tests/                           Node and Python regression tests
 ~~~
 
