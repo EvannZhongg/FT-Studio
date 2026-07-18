@@ -33,3 +33,12 @@ test('keeps SQLite schema and connection lifecycle outside the repository facade
   assert.equal(connection.includes('createResetBackup'), true)
   assert.equal(schema.includes('CREATE TABLE competitions'), true)
 })
+
+test('delegates settings persistence to its repository', () => {
+  const facade = source('src/main/persistence/local-database.mts')
+  const repository = source('src/main/persistence/repositories/settings-repository.mts')
+  assert.equal(facade.includes('FROM app_settings'), false)
+  assert.equal(facade.includes('new SettingsRepository'), true)
+  assert.equal(repository.includes('FROM app_settings'), true)
+  assert.equal(repository.includes('SETTINGS_KEY_INVALID'), true)
+})

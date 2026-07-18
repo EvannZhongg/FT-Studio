@@ -9,18 +9,14 @@ import type {
   CompetitionExportSnapshot,
   ExportScoreEvent
 } from '../application/exports/export-service.mts'
-import {
-  createDefaultAppSettings,
-  isAppSettingKey,
-  normalizeAppSetting,
-  type AppSettings
-} from '../application/settings/app-settings.mts'
+import type { AppSettings } from '../application/settings/app-settings.mts'
 import type {
   CompetitionConfig,
   CompetitionGroupConfig,
   CompetitionListItem,
   CompetitionRefereeConfig
 } from '../../shared/contracts/competition.mts'
+import { SettingsRepository } from './repositories/settings-repository.mts'
 import { SqliteConnection } from './sqlite/connection.mts'
 
 export { DATABASE_APPLICATION_ID, LATEST_SCHEMA_VERSION } from './sqlite/schema.mts'
@@ -91,9 +87,11 @@ export interface CompetitionReport {
 
 export class LocalDatabase {
   private readonly connection: SqliteConnection
+  private readonly settingsRepository: SettingsRepository
 
   constructor(databasePath: string, backupRoot: string) {
     this.connection = new SqliteConnection(databasePath, backupRoot)
+    this.settingsRepository = new SettingsRepository(this.connection)
   }
 
   get databasePath(): string {
@@ -125,38 +123,11 @@ export class LocalDatabase {
   }
 
   getAppSettings(): AppSettings {
-    const settings = createDefaultAppSettings()
-    const rows = this.requireDatabase()
-      .prepare('SELECT key, value_json FROM app_settings')
-      .all() as Array<{ key: string; value_json: string }>
-    for (const row of rows) {
-      if (!isAppSettingKey(row.key)) continue
-      try {
-        Object.assign(settings, {
-          [row.key]: normalizeAppSetting(row.key, JSON.parse(row.value_json))
-        })
-      } catch {
-        // Keep the stable default when one setting row is corrupt.
-      }
-    }
-    return settings
+    return this.settingsRepository.get()
   }
 
   setAppSetting(key: string, value: unknown): AppSettings {
-    if (!isAppSettingKey(key)) throw new Error('SETTINGS_KEY_INVALID')
-    const normalized = normalizeAppSetting(key, value)
-    this.requireDatabase()
-      .prepare(
-        `
-      INSERT INTO app_settings (key, value_json, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET
-        value_json = excluded.value_json,
-        updated_at = excluded.updated_at
-    `
-      )
-      .run(key, JSON.stringify(normalized), new Date().toISOString())
-    return this.getAppSettings()
+    return this.settingsRepository.set(key, value)
   }
 
   createCompetition(input: CompetitionCreateInput): CompetitionConfig {
