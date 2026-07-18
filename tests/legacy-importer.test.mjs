@@ -122,6 +122,21 @@ test('imports old projects idempotently and preserves group referee indexes', ()
     const bobReplay = database.getLegacyReplay(fixture.projectName, 'Final Group', 'Bob')
     assert.equal(bobReplay?.binding?.video_id, 'dQw4w9WgXcQ')
     assert.equal(bobReplay?.events[0].media_sync_status, 'aligned')
+    const report = database.getLegacyReport(fixture.projectName)
+    assert.equal(report?.config.mode, 'TOURNAMENT')
+    assert.equal(report?.config.groups[0].refCount, 1)
+    assert.deepEqual(report?.scores['Open Group'].Alice[1], {
+      total: 0,
+      plus: 1,
+      minus: 1,
+      penalty: 0
+    })
+    assert.deepEqual(report?.scores['Final Group'].Bob[1], {
+      total: 2,
+      plus: 2,
+      minus: 0,
+      penalty: 0
+    })
 
     const second = importLegacyProjects(database, fixture.legacyRoot)
     assert.deepEqual(second, { projects: 1, imported: 0, events: 0, errors: [] })

@@ -27,6 +27,9 @@ export const IPC_CHANNELS = {
   replay: {
     getLegacy: 'replay:get-legacy'
   },
+  reports: {
+    getLegacy: 'reports:get-legacy'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -120,6 +123,28 @@ export interface LegacyReplayResult {
   events: ReplayEvent[]
 }
 
+export interface LegacyReportResult {
+  status: 'ok'
+  config: {
+    project_name: string
+    mode: 'FREE' | 'TOURNAMENT'
+    created_at: string
+    groups: Array<{
+      name: string
+      refCount: number
+      players: string[]
+      referees: Array<{ index: number; name: string; mode: 'SINGLE' | 'DUAL' }>
+    }>
+    media: Record<string, Record<string, Record<string, string>>>
+  }
+  scores: Record<string, Record<string, Record<number, {
+    total: number
+    plus: number
+    minus: number
+    penalty: number
+  }>>>
+}
+
 export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
@@ -160,6 +185,9 @@ export interface FtEngineApi {
   replay: {
     getLegacy: (sourceKey: string, groupName: string, contestantName: string) =>
       Promise<LegacyReplayResult | null>
+  }
+  reports: {
+    getLegacy: (sourceKey: string) => Promise<LegacyReportResult | null>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

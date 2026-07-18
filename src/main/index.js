@@ -563,6 +563,15 @@ app.whenReady().then(async () => {
     }
   )
 
+  ipcMain.handle(IPC_CHANNELS.reports.getLegacy, (event, sourceKey) => {
+    assertMainSender(event)
+    if (typeof sourceKey !== 'string' || !sourceKey || sourceKey.length > 256) {
+      throw new Error('IPC_INVALID_REPORT_CONTEXT')
+    }
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.getLegacyReport(sourceKey)
+  })
+
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
     assertMainSender(event)
     return appConfig

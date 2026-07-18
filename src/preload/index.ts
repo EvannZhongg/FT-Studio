@@ -35,6 +35,9 @@ const IPC_CHANNELS = {
   replay: {
     getLegacy: 'replay:get-legacy'
   },
+  reports: {
+    getLegacy: 'reports:get-legacy'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -81,6 +84,9 @@ const ftEngine = {
   replay: {
     getLegacy: (sourceKey, groupName, contestantName) =>
       ipcRenderer.invoke(IPC_CHANNELS.replay.getLegacy, sourceKey, groupName, contestantName)
+  },
+  reports: {
+    getLegacy: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.reports.getLegacy, sourceKey)
   },
   overlay: {
     open: (options) => ipcRenderer.send(IPC_CHANNELS.overlay.open, options),

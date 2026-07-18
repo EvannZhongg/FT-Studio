@@ -3,7 +3,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 
-export const LATEST_SCHEMA_VERSION = 3
+export const LATEST_SCHEMA_VERSION = 4
 
 export interface StoredScoreEvent {
   eventId: string
@@ -53,6 +53,7 @@ export interface LegacyImportGroup {
   id: string
   name: string
   position: number
+  refCount: number
   contestants: LegacyImportContestant[]
   referees: LegacyImportReferee[]
 }
@@ -92,6 +93,28 @@ export interface LegacyReplayEvent {
   media_id: string
   media_time_ms: number | null
   media_sync_status: string
+}
+
+export interface LegacyReport {
+  status: 'ok'
+  config: {
+    project_name: string
+    mode: 'FREE' | 'TOURNAMENT'
+    created_at: string
+    groups: Array<{
+      name: string
+      refCount: number
+      players: string[]
+      referees: Array<{ index: number; name: string; mode: 'SINGLE' | 'DUAL' }>
+    }>
+    media: Record<string, Record<string, Record<string, string>>>
+  }
+  scores: Record<string, Record<string, Record<number, {
+    total: number
+    plus: number
+    minus: number
+    penalty: number
+  }>>>
 }
 
 const MIGRATIONS = [
@@ -305,6 +328,13 @@ const MIGRATIONS = [
       DROP TABLE score_events_v2;
       DROP TABLE match_sessions_v2;
     `
+  },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE competition_groups
+        ADD COLUMN legacy_ref_count INTEGER NOT NULL DEFAULT 0;
+    `
   }
 ] as const
 
@@ -411,9 +441,10 @@ export class LocalDatabase {
       let eventCount = 0
       for (const group of input.groups) {
         database.prepare(`
-          INSERT INTO competition_groups (id, stage_id, name, position)
-          VALUES (?, ?, ?, ?)
-        `).run(group.id, input.stage.id, group.name, group.position)
+          INSERT INTO competition_groups (
+            id, stage_id, name, position, legacy_ref_count
+          ) VALUES (?, ?, ?, ?, ?)
+        `).run(group.id, input.stage.id, group.name, group.position, group.refCount)
         for (const referee of group.referees) {
           database.prepare(`
             INSERT INTO referees (
@@ -605,6 +636,131 @@ export class LocalDatabase {
         canonical_url: bindingRow.canonical_url
       } : null,
       events
+    }
+  }
+
+  getLegacyReport(sourceKey: string): LegacyReport | null {
+    const database = this.requireDatabase()
+    const competition = database.prepare(`
+      SELECT c.id, c.name, c.mode, c.created_at
+      FROM legacy_imports li
+      JOIN competitions c ON c.id = li.competition_id
+      WHERE li.source_key = ?
+    `).get(sourceKey) as {
+      id: string
+      name: string
+      mode: string
+      created_at: string
+    } | undefined
+    if (!competition) return null
+
+    const groupRows = database.prepare(`
+      SELECT g.id, g.name, g.position, g.legacy_ref_count
+      FROM stages s
+      JOIN competition_groups g ON g.stage_id = s.id
+      WHERE s.competition_id = ?
+      ORDER BY g.position
+    `).all(competition.id) as Array<{
+      id: string
+      name: string
+      position: number
+      legacy_ref_count: number
+    }>
+    const groups = groupRows.map((group) => {
+      const players = database.prepare(`
+        SELECT name FROM contestants WHERE group_id = ? ORDER BY position
+      `).all(group.id) as Array<{ name: string }>
+      const referees = database.prepare(`
+        SELECT source_referee_index, name, mode
+        FROM referees
+        WHERE group_id = ?
+        ORDER BY source_referee_index
+      `).all(group.id) as Array<{
+        source_referee_index: number
+        name: string
+        mode: string
+      }>
+      return {
+        name: group.name,
+        refCount: group.legacy_ref_count,
+        players: players.map((player) => player.name),
+        referees: referees.map((referee) => ({
+          index: Number(referee.source_referee_index),
+          name: referee.name,
+          mode: referee.mode === 'DUAL' ? 'DUAL' as const : 'SINGLE' as const
+        }))
+      }
+    })
+    const mediaRows = database.prepare(`
+      SELECT g.name AS group_name, p.name AS contestant_name,
+        mb.provider, mb.media_id, mb.canonical_url
+      FROM stages s
+      JOIN competition_groups g ON g.stage_id = s.id
+      JOIN contestants p ON p.group_id = g.id
+      JOIN media_bindings mb ON mb.contestant_id = p.id
+      WHERE s.competition_id = ?
+    `).all(competition.id) as Array<Record<string, string>>
+    const media: Record<string, Record<string, Record<string, string>>> = {}
+    for (const row of mediaRows) {
+      media[row.group_name] ??= {}
+      media[row.group_name][row.contestant_name] = {
+        provider: row.provider,
+        video_id: row.media_id,
+        canonical_url: row.canonical_url
+      }
+    }
+
+    const scoreRows = database.prepare(`
+      SELECT * FROM (
+        SELECT
+          g.name AS group_name,
+          p.name AS contestant_name,
+          r.source_referee_index,
+          e.current_total,
+          e.total_plus,
+          e.total_minus,
+          e.major_penalty,
+          ROW_NUMBER() OVER (
+            PARTITION BY p.id, r.id
+            ORDER BY e.system_time DESC, e.event_id DESC
+          ) AS position
+        FROM stages s
+        JOIN competition_groups g ON g.stage_id = s.id
+        JOIN contestants p ON p.group_id = g.id
+        JOIN match_sessions ms ON ms.contestant_id = p.id
+        JOIN score_events e ON e.match_session_id = ms.id
+        JOIN referees r ON r.id = e.referee_id
+        WHERE s.competition_id = ?
+      ) WHERE position = 1
+    `).all(competition.id) as Array<Record<string, string | number>>
+    const scores: Record<string, Record<string, Record<number, {
+      total: number
+      plus: number
+      minus: number
+      penalty: number
+    }>>> = {}
+    for (const row of scoreRows) {
+      const groupName = String(row.group_name)
+      const contestantName = String(row.contestant_name)
+      scores[groupName] ??= {}
+      scores[groupName][contestantName] ??= {}
+      scores[groupName][contestantName][Number(row.source_referee_index)] = {
+        total: Number(row.current_total),
+        plus: Number(row.total_plus),
+        minus: Number(row.total_minus),
+        penalty: Number(row.major_penalty)
+      }
+    }
+    return {
+      status: 'ok',
+      config: {
+        project_name: competition.name,
+        mode: competition.mode === 'TOURNAMENT' ? 'TOURNAMENT' : 'FREE',
+        created_at: competition.created_at,
+        groups,
+        media
+      },
+      scores
     }
   }
 

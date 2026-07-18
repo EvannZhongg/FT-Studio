@@ -345,9 +345,8 @@ export const useRefereeStore = defineStore('referee', {
 
     async fetchReportData(dirName) {
       try {
-        // 返回 { config: ..., scores: ... }
-        const res = await axios.post(`${this.apiBase}/api/project/report`, {dir_name: dirName})
-        return res.data
+        if (!window.ftEngine?.reports) return null
+        return await window.ftEngine.reports.getLegacy(dirName)
       } catch (e) {
         console.error("Fetch report failed", e)
         return null

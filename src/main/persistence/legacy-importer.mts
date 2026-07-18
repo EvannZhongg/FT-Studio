@@ -20,6 +20,7 @@ interface LegacyRefereeConfig {
 
 interface LegacyGroupConfig {
   name?: string
+  refCount?: number
   players?: string[]
   referees?: LegacyRefereeConfig[]
 }
@@ -47,6 +48,8 @@ export interface LegacyImportRunResult {
   events: number
   errors: Array<{ sourceKey: string; message: string }>
 }
+
+const LEGACY_IMPORT_VERSION = '2'
 
 export function importLegacyProjects(database: LocalDatabase, legacyRoot: string): LegacyImportRunResult {
   const result: LegacyImportRunResult = { projects: 0, imported: 0, events: 0, errors: [] }
@@ -140,6 +143,11 @@ function buildGroup(
       mode: referee?.mode === 'DUAL' ? 'DUAL' as const : 'SINGLE' as const
     }
   })
+  const refCount = Math.max(
+    Number.isSafeInteger(Number(config.refCount)) ? Number(config.refCount) : 0,
+    ...referees.map((referee) => referee.sourceIndex),
+    0
+  )
   const refereeIds = new Map(referees.map((referee) => [referee.sourceIndex, referee.id]))
   const players = Array.isArray(config.players) ? config.players.map(String) : []
   const contestants = players.map((player, playerPosition) => buildContestant(
@@ -152,7 +160,7 @@ function buildGroup(
     refereeIds,
     mediaConfig[name]?.[player]
   ))
-  return { id: groupId, name, position, contestants, referees }
+  return { id: groupId, name, position, refCount, contestants, referees }
 }
 
 function buildContestant(
@@ -264,6 +272,7 @@ function hashProjectFiles(projectPath: string): string {
     }
   }
   const hash = createHash('sha256')
+  hash.update(`legacy-import-version:${LEGACY_IMPORT_VERSION}\0`)
   for (const file of files.sort()) {
     hash.update(path.relative(projectPath, file).replaceAll('\\', '/'))
     hash.update('\0')
