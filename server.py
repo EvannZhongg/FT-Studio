@@ -423,6 +423,7 @@ class HeadlessDeviceNode:
     self.intentional_disconnect = False
     self.is_reconnecting = False
     self._heartbeat_task = None
+    self._reconnect_task = None
 
   async def connect(self):
     self.intentional_disconnect = False
@@ -481,9 +482,16 @@ class HeadlessDeviceNode:
 
   async def disconnect(self):
     self.intentional_disconnect = True
-    if self._heartbeat_task:
-      self._heartbeat_task.cancel()
-      self._heartbeat_task = None
+    pending = []
+    current = asyncio.current_task()
+    for task in (self._heartbeat_task, self._reconnect_task):
+      if task and task is not current and not task.done():
+        task.cancel()
+        pending.append(task)
+    self._heartbeat_task = None
+    self._reconnect_task = None
+    if pending:
+      await asyncio.gather(*pending, return_exceptions=True)
 
     await self._ensure_disconnect()
     self._emit_status("disconnected")
@@ -503,6 +511,7 @@ class HeadlessDeviceNode:
     print(f"Disconnected callback: {self.ble_device.name}")
     if self._heartbeat_task:
       self._heartbeat_task.cancel()
+      self._heartbeat_task = None
 
     if not self.intentional_disconnect:
       self._trigger_reconnect()
@@ -510,28 +519,30 @@ class HeadlessDeviceNode:
       self._emit_status("disconnected")
 
   def _trigger_reconnect(self):
-    if self.is_reconnecting:
+    if self.intentional_disconnect or (self._reconnect_task and not self._reconnect_task.done()):
       return
 
+    self.is_reconnecting = True
     self._emit_status("error")
     print(f"Connection lost! Auto-reconnect {self.ble_device.name}...")
-    asyncio.create_task(self._reconnect_loop())
+    self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
   async def _reconnect_loop(self):
-    self.is_reconnecting = True
-    while not self.intentional_disconnect:
-      print(f"Retrying {self.ble_device.name} in 3s...")
-      await asyncio.sleep(3.0)
+    try:
+      while not self.intentional_disconnect:
+        print(f"Retrying {self.ble_device.name} in 3s...")
+        await asyncio.sleep(3.0)
 
-      if self.intentional_disconnect:
-        break
+        if self.intentional_disconnect:
+          break
 
-      if await self._do_connect():
-        print(f"Reconnected: {self.ble_device.name}")
-        self.is_reconnecting = False
-        return
-
-    self.is_reconnecting = False
+        if await self._do_connect():
+          print(f"Reconnected: {self.ble_device.name}")
+          return
+    finally:
+      self.is_reconnecting = False
+      if self._reconnect_task is asyncio.current_task():
+        self._reconnect_task = None
 
   async def _heartbeat_loop(self):
     interval, retry_delay, fail_threshold = get_ble_heartbeat_config()
@@ -605,6 +616,7 @@ class SerialDeviceNode:
 
     self.intentional_disconnect = False
     self.is_reconnecting = False
+    self._reconnect_task = None
     self.serial = None
     self._reader_thread = None
     self._stop_event = threading.Event()
@@ -658,6 +670,11 @@ class SerialDeviceNode:
 
   async def disconnect(self):
     self.intentional_disconnect = True
+    reconnect_task = self._reconnect_task
+    self._reconnect_task = None
+    if reconnect_task and reconnect_task is not asyncio.current_task() and not reconnect_task.done():
+      reconnect_task.cancel()
+      await asyncio.gather(reconnect_task, return_exceptions=True)
     await self._ensure_disconnect()
     self._emit_status("disconnected")
 
@@ -721,28 +738,30 @@ class SerialDeviceNode:
       self._trigger_reconnect()
 
   def _trigger_reconnect(self):
-    if self.is_reconnecting:
+    if self.intentional_disconnect or (self._reconnect_task and not self._reconnect_task.done()):
       return
 
+    self.is_reconnecting = True
     self._emit_status("error")
     print(f"USB connection lost! Auto-reconnect {self.device_name}...")
-    asyncio.create_task(self._reconnect_loop())
+    self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
   async def _reconnect_loop(self):
-    self.is_reconnecting = True
-    while not self.intentional_disconnect:
-      print(f"Retrying {self.device_name} in 3s...")
-      await asyncio.sleep(3.0)
+    try:
+      while not self.intentional_disconnect:
+        print(f"Retrying {self.device_name} in 3s...")
+        await asyncio.sleep(3.0)
 
-      if self.intentional_disconnect:
-        break
+        if self.intentional_disconnect:
+          break
 
-      if await self._do_connect():
-        print(f"Reconnected: {self.device_name}")
-        self.is_reconnecting = False
-        return
-
-    self.is_reconnecting = False
+        if await self._do_connect():
+          print(f"Reconnected: {self.device_name}")
+          return
+    finally:
+      self.is_reconnecting = False
+      if self._reconnect_task is asyncio.current_task():
+        self._reconnect_task = None
 
   def _emit_status(self, status):
     if self.on_status_callback:

@@ -198,9 +198,15 @@ class BleSession:
 
   async def disconnect(self):
     self.intentional_disconnect = True
+    pending = []
     for task in (self.reconnect_task, self.heartbeat_task):
-      if task and not task.done():
+      if task and task is not asyncio.current_task() and not task.done():
         task.cancel()
+        pending.append(task)
+    self.reconnect_task = None
+    self.heartbeat_task = None
+    if pending:
+      await asyncio.gather(*pending, return_exceptions=True)
     if self.client:
       try:
         await self.client.disconnect()
@@ -365,8 +371,11 @@ class SerialSession:
 
   async def disconnect(self):
     self.intentional_disconnect = True
-    if self.reconnect_task and not self.reconnect_task.done():
-      self.reconnect_task.cancel()
+    reconnect_task = self.reconnect_task
+    self.reconnect_task = None
+    if reconnect_task and reconnect_task is not asyncio.current_task() and not reconnect_task.done():
+      reconnect_task.cancel()
+      await asyncio.gather(reconnect_task, return_exceptions=True)
     self.stop_event.set()
     await asyncio.to_thread(self._close_sync)
     thread = self.reader_thread

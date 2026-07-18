@@ -358,6 +358,7 @@ onUnmounted(() => {
     removeShortcutListener()
     window.ftEngine.overlay.close()
   }
+  if (store.matchActive) void store.stopMatch()
 })
 
 // ... (以下逻辑保持不变)

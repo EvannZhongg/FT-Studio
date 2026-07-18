@@ -13,6 +13,11 @@ class FakeDevice:
     self.reset_count += 1
 
 
+class FakeBleDevice:
+  name = "Counter-Test"
+  address = "ble-test"
+
+
 class ScoringBaselineTests(unittest.TestCase):
   def make_referee(self, mode):
     referee = server.HeadlessReferee(1, "Judge A", mode, None)
@@ -91,6 +96,46 @@ class ScoringBaselineTests(unittest.TestCase):
     )
     self.assertEqual([item.ble_timestamp for item in history], [100, 200, 300])
     self.assertEqual(len({item.event_id for item in history}), 3)
+
+  def test_active_disconnect_cancels_pending_ble_reconnect(self):
+    async def scenario():
+      statuses = []
+      node = server.HeadlessDeviceNode(FakeBleDevice(), None, statuses.append)
+      node._trigger_reconnect()
+      reconnect_task = node._reconnect_task
+      await asyncio.sleep(0)
+
+      await node.disconnect()
+
+      self.assertTrue(reconnect_task.cancelled())
+      self.assertIsNone(node._reconnect_task)
+      self.assertFalse(node.is_reconnecting)
+      self.assertTrue(node.intentional_disconnect)
+      self.assertEqual(statuses[-1], "disconnected")
+
+    asyncio.run(scenario())
+
+  def test_active_disconnect_cancels_pending_usb_reconnect(self):
+    async def scenario():
+      statuses = []
+      node = server.SerialDeviceNode({
+        "address": "usb:test",
+        "name": "Counter-USB",
+        "path": "COM9",
+      }, None, statuses.append)
+      node._trigger_reconnect()
+      reconnect_task = node._reconnect_task
+      await asyncio.sleep(0)
+
+      await node.disconnect()
+
+      self.assertTrue(reconnect_task.cancelled())
+      self.assertIsNone(node._reconnect_task)
+      self.assertFalse(node.is_reconnecting)
+      self.assertTrue(node.intentional_disconnect)
+      self.assertEqual(statuses[-1], "disconnected")
+
+    asyncio.run(scenario())
 
 
 if __name__ == "__main__":

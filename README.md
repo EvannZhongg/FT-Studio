@@ -8,7 +8,7 @@ FT Engine is an Electron desktop scoring application for competitive events. It 
 
 Route B is being introduced incrementally. The current application is a working dual-runtime transition:
 
-- Window, shortcut, overlay, window discovery, device scan, historical project list/delete, report, and replay flows use constrained IPC.
+- Window, shortcut, overlay, window discovery, device scan/stop, historical project list/delete, report, and replay flows use constrained IPC.
 - Electron Main owns the security boundary, Platform Worker, and shadow SQLite database.
 - The Python Platform Worker provides window capabilities and device discovery and already contains device-session primitives.
 - The legacy FastAPI backend still owns project writes, live scoring, WebSocket updates, media anchors, CSV storage, and exports.
@@ -20,6 +20,7 @@ See [Route B refactor status](docs/REFACTOR_PLAN_ROUTE_B_zh.md) for the exact pr
 
 - Free and Tournament modes.
 - BLE/USB clickers with single and dual-device referees.
+- Coordinated BLE/USB shutdown when leaving scoring or closing the application.
 - Live scoring, major penalties, waveform display, and contestant navigation.
 - Transparent OBS-friendly overlay and target-window positioning.
 - YouTube video scoring, playback anchors, and score overlays during replay.

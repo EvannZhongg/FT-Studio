@@ -8,7 +8,7 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 项目正在执行路线 B 重构。当前版本是可运行的双链路过渡架构：
 
-- Vue Renderer 的窗口、快捷键、Overlay、窗口枚举、设备扫描、历史项目列表/删除、报表和复盘已使用受控 IPC。
+- Vue Renderer 的窗口、快捷键、Overlay、窗口枚举、设备扫描/停止、历史项目列表/删除、报表和复盘已使用受控 IPC。
 - Electron Main 管理安全边界、Platform Worker 和影子 SQLite `ft-engine.db`。
 - Python Platform Worker 负责窗口能力和设备扫描，并已具备设备会话能力。
 - Legacy FastAPI backend 仍负责项目写入、实时计分、WebSocket、媒体锚点、CSV 和导出。
@@ -20,6 +20,7 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 - 自由模式和赛事模式。
 - BLE/USB 单机、双机裁判设备。
+- 退出计分或关闭应用时统一关断 BLE/USB 会话。
 - 实时分数、重点扣分、波形和选手切换。
 - OBS 友好的透明悬浮窗与窗口定位。
 - YouTube 视频计分、播放器时间锚点和视频复盘悬浮分数。

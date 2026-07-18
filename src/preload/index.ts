@@ -32,6 +32,9 @@ const IPC_CHANNELS = {
   devices: {
     scan: 'devices:scan'
   },
+  match: {
+    stop: 'match:stop'
+  },
   replay: {
     getLegacy: 'replay:get-legacy'
   },
@@ -84,6 +87,9 @@ const ftEngine = {
   },
   devices: {
     scan: (options) => ipcRenderer.invoke(IPC_CHANNELS.devices.scan, options)
+  },
+  match: {
+    stop: () => ipcRenderer.invoke(IPC_CHANNELS.match.stop)
   },
   replay: {
     getLegacy: (sourceKey, groupName, contestantName) =>

@@ -169,6 +169,8 @@ class DeviceServiceTests(unittest.TestCase):
       self.assertEqual(adapter.client.writes[0][0], b"\x01")
       self.assertEqual(adapter.client.writes[1][0], b"\x02Counter-Test")
       await service.disconnect("judge-1-primary")
+      self.assertFalse(adapter.client.is_connected)
+      self.assertEqual(service.sessions, {})
 
     asyncio.run(scenario())
 
@@ -203,6 +205,8 @@ class DeviceServiceTests(unittest.TestCase):
       self.assertIn(USB_CMD_RESET, commands)
       self.assertIn(USB_CMD_RENAME, commands)
       await service.close()
+      self.assertTrue(active_serial.closed)
+      self.assertEqual(service.sessions, {})
 
     asyncio.run(scenario())
 

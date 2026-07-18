@@ -1,6 +1,8 @@
 import {defineStore} from 'pinia'
 import axios from 'axios'
 
+let stopMatchPromise = null
+
 export const useRefereeStore = defineStore('referee', {
   state: () => ({
     // --- 动态配置 ---
@@ -8,6 +10,7 @@ export const useRefereeStore = defineStore('referee', {
     wsUrl: 'ws://127.0.0.1:8000/ws',
     referees: {},
     isConnected: false,
+    matchActive: false,
     ws: null,
     projectConfig: {name: '', mode: 'FREE', groups: []},
     currentContext: {groupName: '', contestantName: ''},
@@ -248,7 +251,9 @@ export const useRefereeStore = defineStore('referee', {
     // 启动比赛：发送设备绑定信息
     async startMatch(config) {
       try {
+        if (stopMatchPromise) await stopMatchPromise
         await axios.post(`${this.apiBase}/setup`, config)
+        this.matchActive = true
 
         // 重置本地状态
         this.referees = {}
@@ -262,6 +267,7 @@ export const useRefereeStore = defineStore('referee', {
         })
       } catch (e) {
         console.error("Setup failed:", e)
+        await this.stopMatch()
         throw e
       }
     },
@@ -283,14 +289,39 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     async stopMatch() {
-      try {
-        await axios.post(`${this.apiBase}/teardown`)
-      } catch (e) {
-        console.error("Stop match failed:", e)
-      } finally {
-        this.referees = {}
-        this.currentContext = {groupName: '', contestantName: ''}
-      }
+      if (stopMatchPromise) return stopMatchPromise
+      const pending = (async () => {
+        try {
+          let result
+          if (window.ftEngine?.match) {
+            result = await window.ftEngine.match.stop()
+          } else {
+            await axios.post(`${this.apiBase}/teardown`)
+            result = {
+              ok: true,
+              worker: {status: 'skipped'},
+              legacy: {status: 'ok'}
+            }
+          }
+          if (!result.ok) console.warn("Some device owners did not stop cleanly", result)
+          return result
+        } catch (e) {
+          console.error("Stop match failed:", e)
+          return {
+            ok: false,
+            worker: {status: 'error', error: 'MATCH_STOP_FAILED'},
+            legacy: {status: 'error', error: 'MATCH_STOP_FAILED'}
+          }
+        } finally {
+          this.matchActive = false
+          this.referees = {}
+          this.currentContext = {groupName: '', contestantName: ''}
+        }
+      })().finally(() => {
+        if (stopMatchPromise === pending) stopMatchPromise = null
+      })
+      stopMatchPromise = pending
+      return pending
     },
 
     // --- 6. 窗口管理 (Overlay) ---

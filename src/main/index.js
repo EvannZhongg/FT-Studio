@@ -17,6 +17,7 @@ import {
 import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
+import { DeviceLifecycle } from './match/device-lifecycle.mjs'
 import { LocalDatabase } from './persistence/local-database.mts'
 import {
   deleteLegacyProjectSource,
@@ -36,6 +37,7 @@ let platformWorkerRestartCount = 0
 let platformWorkerStopping = false
 let mainWindow = null
 let overlayWindow = null
+let mainWindowCloseInProgress = false
 const MAIN_WINDOW_TITLE = 'FT Engine'
 const OVERLAY_WINDOW_TITLE = 'FT Engine Overlay'
 const MAX_PLATFORM_WORKER_RESTARTS = 3
@@ -108,6 +110,44 @@ function getAppConfig() {
 }
 
 const appConfig = getAppConfig()
+
+async function disconnectLegacyDevices() {
+  let lastError = null
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${appConfig.port}/teardown`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(2500)
+      })
+      const result = await response.json()
+      if (!response.ok || result?.status !== 'ok') throw new Error('Legacy teardown rejected')
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+  const error = new Error(lastError?.message || 'Legacy teardown failed')
+  error.code = 'LEGACY_TEARDOWN_FAILED'
+  throw error
+}
+
+const deviceLifecycle = new DeviceLifecycle({
+  disconnectWorker: async () => {
+    if (!platformWorker) return { skipped: true }
+    await platformWorker.request('device.disconnectAll', {}, 5000)
+  },
+  disconnectLegacy: disconnectLegacyDevices,
+  onStopped: (reason, result) => {
+    const message = `Device shutdown (${reason}): worker=${result.worker.status}, legacy=${result.legacy.status}`
+    console.log('[Electron]', message)
+    logToFile(message)
+  }
+})
+
+function stopDeviceSessions(reason) {
+  return deviceLifecycle.stop(reason)
+}
 
 const createPyProc = () => {
   const { cmd, args } = getBackendLaunchConfig(__dirname, is.dev)
@@ -265,15 +305,12 @@ function getLocalDataTargets() {
   ]
 }
 
-function deleteLocalDataFiles() {
-  closeStartupLog()
+async function deleteLocalDataFiles() {
+  await stopDeviceSessions('delete-local-data')
+  await exitPlatformWorker()
   closeLocalDatabase()
   exitPyProc()
-  if (platformWorker) {
-    platformWorkerStopping = true
-    platformWorker.terminate()
-    platformWorker = null
-  }
+  closeStartupLog()
 
   const deleted = []
   const failed = []
@@ -391,6 +428,7 @@ function openAllowedExternalUrl(value) {
 }
 
 function createWindow() {
+  mainWindowCloseInProgress = false
   mainWindow = new BrowserWindow({
     title: MAIN_WINDOW_TITLE,
     width: 900,
@@ -428,14 +466,21 @@ function createWindow() {
     openAllowedExternalUrl(url)
   })
 
-  mainWindow.on('close', () => {
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.close()
+  mainWindow.on('close', (event) => {
+    if (mainWindowCloseInProgress) return
+    event.preventDefault()
+    mainWindowCloseInProgress = true
+    const closingWindow = mainWindow
+    void stopDeviceSessions('window-close').finally(() => {
+      if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close()
       overlayWindow = null
-    }
-    if (isMac) {
-      app.quit()
-    }
+      if (closingWindow && !closingWindow.isDestroyed()) closingWindow.destroy()
+      if (isMac) app.quit()
+    })
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -498,6 +543,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on(IPC_CHANNELS.app.restartForUpdate, async (event) => {
     if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.app.restartForUpdate)) return
+    await stopDeviceSessions('restart-for-update')
     await exitPlatformWorker()
     closeLocalDatabase()
     exitPyProc()
@@ -571,6 +617,11 @@ app.whenReady().then(async () => {
     return platformWorker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
   })
 
+  ipcMain.handle(IPC_CHANNELS.match.stop, async (event) => {
+    assertMainSender(event)
+    return stopDeviceSessions('score-page-exit')
+  })
+
   ipcMain.handle(
     IPC_CHANNELS.replay.getLegacy,
     (event, sourceKey, groupName, contestantName) => {
@@ -622,7 +673,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle(IPC_CHANNELS.app.deleteLocalData, async (event) => {
     assertMainSender(event)
-    const result = deleteLocalDataFiles()
+    const result = await deleteLocalDataFiles()
     if (result.failed.length > 0) {
       return { ok: false, ...result }
     }

@@ -24,6 +24,9 @@ export const IPC_CHANNELS = {
   devices: {
     scan: 'devices:scan'
   },
+  match: {
+    stop: 'match:stop'
+  },
   replay: {
     getLegacy: 'replay:get-legacy'
   },
@@ -94,6 +97,17 @@ export interface LocalDevice {
 export interface DeviceScanResult {
   devices: LocalDevice[]
   errors: Array<{ transport: 'BLE' | 'USB'; code: string }>
+}
+
+export interface DeviceShutdownStep {
+  status: 'ok' | 'skipped' | 'error'
+  error?: string
+}
+
+export interface MatchStopResult {
+  ok: boolean
+  worker: DeviceShutdownStep
+  legacy: DeviceShutdownStep
 }
 
 export interface ReplayEvent {
@@ -189,6 +203,9 @@ export interface FtEngineApi {
   }
   devices: {
     scan: (options: { flush: boolean; remarks: Record<string, string> }) => Promise<DeviceScanResult>
+  }
+  match: {
+    stop: () => Promise<MatchStopResult>
   }
   replay: {
     getLegacy: (sourceKey: string, groupName: string, contestantName: string) =>
