@@ -2,7 +2,6 @@ import {
   applyDeviceCounterEvent,
   createRefereeScoringState,
   resetRefereeScoringState,
-  type DeviceRole,
   type RefereeMode,
   type RefereeScoringState
 } from '../domain/scoring.mts'
@@ -11,17 +10,30 @@ import type {
   MatchScoreEventWriteResult
 } from '../persistence/local-database.mts'
 import type { YouTubeMediaBinding } from '../../shared/media/youtube.mts'
-import { MatchMediaSession, type MatchMediaStatus } from './media-session.mts'
+import {
+  MatchDeviceSession,
+  type MatchDeviceBinding,
+  type MatchDeviceConnection,
+  type MatchDeviceConnectionRequest
+} from './match-device-session.mts'
+import { MatchMediaSession } from './media-session.mts'
 import { MatchSessionError } from './match-session-error.mts'
+import {
+  MatchSessionNotifier,
+  type MatchRefereeUpdate,
+  type MatchSessionState,
+  type MatchStatusUpdate
+} from './match-session-notifier.mts'
 
 export { MatchSessionError } from './match-session-error.mts'
+export type {
+  MatchRefereeUpdate,
+  MatchSessionState,
+  MatchStatusUpdate
+} from './match-session-notifier.mts'
 
-export interface MatchRefereeBinding {
-  index: number
+export interface MatchRefereeBinding extends MatchDeviceBinding {
   name: string
-  mode: RefereeMode
-  primaryDeviceId: string | null
-  secondaryDeviceId: string | null
 }
 
 export interface MatchStartInput {
@@ -33,37 +45,12 @@ export interface MatchStartInput {
   referees: MatchRefereeBinding[]
 }
 
-export interface MatchRefereeUpdate {
-  index: number
-  name: string
-  mode: RefereeMode
-  score: { total: number; plus: number; minus: number; penalty: number }
-  status: { pri: string; sec: string }
-}
-
-export type MatchSessionState = 'idle' | 'starting' | 'active' | 'stopping' | 'completed' | 'failed'
-
-export interface MatchStatusUpdate {
-  state: MatchSessionState
-  persistence: 'idle' | 'saving' | 'saved' | 'error'
-  worker: 'idle' | 'ready' | 'reconnecting' | 'error'
-  media: MatchMediaStatus
-  errorCode: string | null
-  lastSavedAt: string | null
-}
-
 interface RefereeRuntime {
   index: number
   name: string
   mode: RefereeMode
   scoring: RefereeScoringState
   status: { pri: string; sec: string }
-}
-
-interface ConnectionRuntime {
-  refereeIndex: number
-  role: DeviceRole
-  deviceId: string
 }
 
 interface MatchSessionDependencies {
@@ -114,9 +101,10 @@ interface MatchPersistenceContext {
 
 export class MatchSessionService {
   private readonly dependencies: MatchSessionDependencies
+  private readonly deviceSession: MatchDeviceSession
   private readonly mediaSession: MatchMediaSession
+  private readonly notifier: MatchSessionNotifier
   private readonly referees = new Map<number, RefereeRuntime>()
-  private readonly connections = new Map<string, ConnectionRuntime>()
   private state: MatchSessionState = 'idle'
   private persistence: MatchStatusUpdate['persistence'] = 'idle'
   private worker: MatchStatusUpdate['worker'] = 'idle'
@@ -133,9 +121,16 @@ export class MatchSessionService {
 
   constructor(dependencies: MatchSessionDependencies) {
     this.dependencies = dependencies
+    this.deviceSession = new MatchDeviceSession({ requestWorker: dependencies.requestWorker })
     this.mediaSession = new MatchMediaSession({
       upsertMediaBinding: dependencies.upsertMediaBinding,
       monotonicNow: dependencies.monotonicNow
+    })
+    this.notifier = new MatchSessionNotifier({
+      emitRefereeUpdate: dependencies.emitRefereeUpdate,
+      emitContextUpdate: dependencies.emitContextUpdate,
+      emitStatusUpdate: dependencies.emitStatusUpdate,
+      onError: dependencies.onError
     })
   }
 
@@ -182,11 +177,11 @@ export class MatchSessionService {
     this.publishStatus()
 
     try {
-      await this.dependencies.requestWorker('device.disconnectAll')
+      await this.deviceSession.disconnectBeforeStart()
       this.assertCurrentOperation(operationVersion)
       this.configure(normalized)
 
-      const requests = this.buildConnectionRequests(normalized.referees)
+      const requests = this.deviceSession.configure(normalized.referees)
       if (requests.length === 0) {
         this.activatePersistenceContext()
         this.worker = 'ready'
@@ -204,14 +199,14 @@ export class MatchSessionService {
       return { ...result, status: this.getStatus() }
     } catch (error) {
       if (operationVersion !== this.operationVersion) {
-        await this.disconnectAfterCancelledStart()
+        await this.deviceSession.disconnectAfterCancelledStart()
         throw new MatchSessionError('MATCH_START_CANCELLED', 'Match start was cancelled')
       }
       this.state = 'failed'
       this.worker = 'error'
       this.errorCode = stableErrorCode(error, 'MATCH_START_FAILED')
       this.publishStatus()
-      await this.disconnectAfterCancelledStart()
+      await this.deviceSession.disconnectAfterCancelledStart()
       throw error
     }
   }
@@ -231,7 +226,7 @@ export class MatchSessionService {
 
   completeStop(ok: boolean): void {
     if (this.state !== 'stopping') return
-    this.connections.clear()
+    this.deviceSession.clear()
     this.referees.clear()
     this.mediaSession.reset()
     this.controlOperationPending = false
@@ -263,10 +258,7 @@ export class MatchSessionService {
   async reconnectWorker(): Promise<{ connections: unknown[] }> {
     if (this.state !== 'active') return { connections: [] }
     const operationVersion = this.operationVersion
-    const requests = [...this.connections].map(([connectionId, value]) => ({
-      connectionId,
-      deviceId: value.deviceId
-    }))
+    const requests = this.deviceSession.connectionRequests()
     this.worker = 'reconnecting'
     this.errorCode = null
     for (const runtime of this.referees.values()) {
@@ -316,7 +308,7 @@ export class MatchSessionService {
     const operationVersion = this.operationVersion
     this.controlOperationPending = true
     try {
-      await this.dependencies.requestWorker('device.resetAll', {}, 10000)
+      await this.deviceSession.resetAll()
       this.assertCurrentOperation(operationVersion)
       this.dependencies.transitionContext?.(
         this.currentPersistenceContext(),
@@ -351,7 +343,7 @@ export class MatchSessionService {
     const operationVersion = this.operationVersion
     this.controlOperationPending = true
     try {
-      const result = await this.dependencies.requestWorker('device.resetAll', {}, 10000)
+      const result = await this.deviceSession.resetAll()
       this.assertCurrentOperation(operationVersion)
       for (const runtime of this.referees.values()) {
         runtime.scoring = resetRefereeScoringState(runtime.scoring)
@@ -411,7 +403,7 @@ export class MatchSessionService {
     }
     const payload = message.payload
     const connectionId = stringValue(payload.connectionId)
-    const connection = this.connections.get(connectionId)
+    const connection = this.deviceSession.connectionFor(connectionId)
     if (!connection) return
     const runtime = this.referees.get(connection.refereeIndex)
     if (!runtime) return
@@ -446,7 +438,7 @@ export class MatchSessionService {
     runtime: RefereeRuntime,
     next: RefereeScoringState,
     connectionId: string,
-    connection: ConnectionRuntime,
+    connection: MatchDeviceConnection,
     message: Record<string, unknown> & { payload: Record<string, unknown> }
   ): void {
     const timestamp = this.now().toISOString()
@@ -507,7 +499,6 @@ export class MatchSessionService {
 
   private configure(input: MatchStartInput): void {
     this.referees.clear()
-    this.connections.clear()
     this.sourceKey = input.sourceKey
     this.stageId = input.stageId
     this.groupName = input.groupName
@@ -547,29 +538,12 @@ export class MatchSessionService {
     return this.currentPersistenceContext()
   }
 
-  private buildConnectionRequests(
-    bindings: MatchRefereeBinding[]
-  ): Array<{ connectionId: string; deviceId: string }> {
-    const requests: Array<{ connectionId: string; deviceId: string }> = []
-    for (const binding of bindings) {
-      this.addConnection(requests, binding.index, 'primary', binding.primaryDeviceId)
-      if (binding.mode === 'DUAL') {
-        this.addConnection(requests, binding.index, 'secondary', binding.secondaryDeviceId)
-      }
-    }
-    return requests
-  }
-
   private async connectConfigured(
-    requests: Array<{ connectionId: string; deviceId: string }>
+    requests: MatchDeviceConnectionRequest[]
   ): Promise<{ connections: unknown[] }> {
-    const result = (await this.dependencies.requestWorker(
-      'device.connectMany',
-      { connections: requests },
-      30000
-    )) as { connections?: unknown[] }
-    for (const value of result.connections ?? []) this.applyConnectionResult(value)
-    return { connections: result.connections ?? [] }
+    const result = await this.deviceSession.connectConfigured(requests)
+    for (const value of result.connections) this.applyConnectionResult(value)
+    return result
   }
 
   private updateWorkerStatusFromConnections(): void {
@@ -580,21 +554,9 @@ export class MatchSessionService {
     this.errorCode = hasError ? 'MATCH_DEVICE_CONNECTION_FAILED' : null
   }
 
-  private addConnection(
-    requests: Array<{ connectionId: string; deviceId: string }>,
-    refereeIndex: number,
-    role: DeviceRole,
-    deviceId: string | null
-  ): void {
-    if (!deviceId) return
-    const connectionId = `match-ref-${refereeIndex}-${role}`
-    this.connections.set(connectionId, { refereeIndex, role, deviceId })
-    requests.push({ connectionId, deviceId })
-  }
-
   private applyConnectionResult(value: unknown): void {
     if (!isRecord(value)) return
-    const connection = this.connections.get(stringValue(value.connectionId))
+    const connection = this.deviceSession.connectionFor(stringValue(value.connectionId))
     if (!connection) return
     const runtime = this.referees.get(connection.refereeIndex)
     if (!runtime) return
@@ -604,47 +566,27 @@ export class MatchSessionService {
   }
 
   private emitReferee(runtime: RefereeRuntime): void {
-    try {
-      this.dependencies.emitRefereeUpdate({
-        index: runtime.index,
-        name: runtime.name,
-        mode: runtime.mode,
-        score: { ...runtime.scoring.score },
-        status: { ...runtime.status }
-      })
-    } catch (error) {
-      this.notifyError('MATCH_RENDERER_NOTIFY_FAILED', error)
-    }
+    this.notifier.referee({
+      index: runtime.index,
+      name: runtime.name,
+      mode: runtime.mode,
+      score: { ...runtime.scoring.score },
+      status: { ...runtime.status }
+    })
   }
 
   private emitContext(context: { groupName: string; contestantName: string }): void {
-    try {
-      this.dependencies.emitContextUpdate?.(context)
-    } catch (error) {
-      this.notifyError('MATCH_RENDERER_NOTIFY_FAILED', error)
-    }
+    this.notifier.context(context)
   }
 
   private publishStatus(): void {
-    try {
-      this.dependencies.emitStatusUpdate?.(this.getStatus())
-    } catch (error) {
-      this.notifyError('MATCH_RENDERER_NOTIFY_FAILED', error)
-    }
+    this.notifier.status(this.getStatus())
   }
 
   private reportError(code: string, error?: unknown): void {
     this.errorCode = code
-    this.notifyError(code, error)
+    this.notifier.error(code, error)
     this.publishStatus()
-  }
-
-  private notifyError(code: string, error?: unknown): void {
-    try {
-      this.dependencies.onError?.(code, error)
-    } catch {
-      // Error reporting must never escape a Worker EventEmitter callback.
-    }
   }
 
   private requireActive(): void {
@@ -656,14 +598,6 @@ export class MatchSessionService {
   private assertCurrentOperation(operationVersion: number): void {
     if (operationVersion !== this.operationVersion) {
       throw new MatchSessionError('MATCH_OPERATION_CANCELLED', 'Match operation was cancelled')
-    }
-  }
-
-  private async disconnectAfterCancelledStart(): Promise<void> {
-    try {
-      await this.dependencies.requestWorker('device.disconnectAll', {}, 5000)
-    } catch {
-      // The original start error remains authoritative.
     }
   }
 
