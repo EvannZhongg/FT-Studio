@@ -67,3 +67,26 @@ test('keeps domain SQL in repositories and read queries', () => {
   assert.equal(report.includes('ROW_NUMBER() OVER'), true)
   assert.equal(exportQuery.includes("database.exec('BEGIN')"), true)
 })
+
+test('keeps window and Overlay lifecycle out of the Main composition root', () => {
+  const main = source('src/main/index.js')
+  const windows = source('src/main/app/windows.mts')
+  const windowIpc = source('src/main/ipc/register-windows.mts')
+  const overlayIpc = source('src/main/ipc/register-overlay.mts')
+
+  for (const implementation of [
+    'new BrowserWindow',
+    'screen.getPrimaryDisplay',
+    'ipcMain.on(IPC_CHANNELS.window',
+    'ipcMain.on(IPC_CHANNELS.overlay'
+  ]) {
+    assert.equal(main.includes(implementation), false, implementation)
+  }
+  assert.equal(main.includes('new DesktopWindowManager'), true)
+  assert.equal(main.includes('registerWindowIpc(windowManager)'), true)
+  assert.equal(main.includes('registerOverlayIpc(windowManager'), true)
+  assert.equal(windows.includes('new BrowserWindow'), true)
+  assert.equal(windows.includes('calculateMainWindowLayout'), true)
+  assert.equal(windowIpc.includes('IPC_CHANNELS.window.toggleMaximize'), true)
+  assert.equal(overlayIpc.includes('IPC_CHANNELS.overlay.setClickThrough'), true)
+})
