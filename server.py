@@ -1103,7 +1103,7 @@ async def teardown():
 
   referees.clear()
   playback_anchors.clear()
-  await scanner_manager.start()
+  await scanner_manager.stop()
   return {"status": "ok"}
 
 
@@ -1286,6 +1286,7 @@ async def load_project(data: dict):
   config = storage_manager.load_project_config(dir_name)
 
   if config:
+    config["source_key"] = dir_name
     match_state["config"] = config
     playback_anchors.clear()
     groups = config.get("groups", [])

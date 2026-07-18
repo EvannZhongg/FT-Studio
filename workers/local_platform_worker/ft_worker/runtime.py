@@ -36,9 +36,12 @@ class WorkerRuntime:
       "window.getBounds": self._get_window_bounds,
       "device.scan": self._scan_devices,
       "device.connect": self._connect_device,
+      "device.connectMany": self._connect_many_devices,
       "device.disconnect": self._disconnect_device,
       "device.reset": self._reset_device,
+      "device.resetAll": self._reset_all_devices,
       "device.rename": self._rename_device,
+      "device.renameDiscovered": self._rename_discovered_device,
       "device.disconnectAll": self._disconnect_all_devices,
     }
 
@@ -105,11 +108,33 @@ class WorkerRuntime:
     device_id = self._required_id(params, "deviceId")
     return await service.connect(connection_id, device_id)
 
+  async def _connect_many_devices(self, params):
+    connections = params.get("connections")
+    if not isinstance(connections, list) or len(connections) > 32:
+      raise ProtocolError("INVALID_PARAMS", "connections must be a bounded list")
+    normalized = []
+    connection_ids = set()
+    device_ids = set()
+    for value in connections:
+      if not isinstance(value, dict):
+        raise ProtocolError("INVALID_PARAMS", "Invalid connection entry")
+      connection_id = self._required_id(value, "connectionId")
+      device_id = self._required_id(value, "deviceId")
+      if connection_id in connection_ids or device_id in device_ids:
+        raise ProtocolError("INVALID_PARAMS", "Connections must use unique ids and devices")
+      connection_ids.add(connection_id)
+      device_ids.add(device_id)
+      normalized.append({"connectionId": connection_id, "deviceId": device_id})
+    return await self._devices().connect_many(normalized)
+
   async def _disconnect_device(self, params):
     return await self._devices().disconnect(self._required_id(params, "connectionId"))
 
   async def _reset_device(self, params):
     return await self._devices().reset(self._required_id(params, "connectionId"))
+
+  async def _reset_all_devices(self, params):
+    return await self._devices().reset_all()
 
   async def _rename_device(self, params):
     connection_id = self._required_id(params, "connectionId")
@@ -117,6 +142,13 @@ class WorkerRuntime:
     if not isinstance(name, str) or not name.strip() or len(name.encode("utf-8")) > 32:
       raise ProtocolError("INVALID_PARAMS", "Device name is invalid")
     return await self._devices().rename(connection_id, name.strip())
+
+  async def _rename_discovered_device(self, params):
+    device_id = self._required_id(params, "deviceId")
+    name = params.get("name")
+    if not isinstance(name, str) or not name.strip() or len(name.encode("utf-8")) > 32:
+      raise ProtocolError("INVALID_PARAMS", "Device name is invalid")
+    return await self._devices().rename_discovered(device_id, name.strip())
 
   async def _disconnect_all_devices(self, params):
     await self.close()

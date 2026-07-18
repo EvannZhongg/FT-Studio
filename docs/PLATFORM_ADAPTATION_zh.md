@@ -8,8 +8,10 @@
 
 配套文档：
 
-- [路线 B 重构方案](./REFACTOR_PLAN_ROUTE_B_zh.md)
-- [社区接口与桌面产品规范](./COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
+- [当前架构](./ARCHITECTURE_CURRENT_zh.md)
+- [目标架构与项目结构](./ARCHITECTURE_TARGET_zh.md)
+- [路线 B 剩余重构计划](./REFACTOR_PLAN_ROUTE_B_zh.md)
+- [桌面 UI 与交互目标](./UI_INTERACTION_SPEC_zh.md)
 
 ## 2. 建议支持基线
 

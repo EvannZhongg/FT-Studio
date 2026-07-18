@@ -62,6 +62,7 @@ class StorageManager:
       "project_name": project_name,
       "mode": mode,
       "created_at": timestamp,
+      "source_key": folder_name,
       "groups": [],
       "media": {}
     }

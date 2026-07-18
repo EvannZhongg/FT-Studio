@@ -1,120 +1,77 @@
-# FT Engine 路线 B 重构状态
+# FT Engine 路线 B：剩余重构计划
 
-## 1. 文档用途
+> 更新基线：2026-07-18，包含当前工作树中尚未提交的 `MatchSessionService`、Worker 批量连接和 SQLite live-managed 改动。本文只维护剩余工作，不重复已完成历史。
 
-本文记录当前代码事实、过渡边界和剩余切换顺序，不再重复已经完成的阶段任务。
+当前运行事实见 [当前架构](./ARCHITECTURE_CURRENT_zh.md)，最终边界和目录见 [目标架构](./ARCHITECTURE_TARGET_zh.md)。UI 与用户服务分别见 [UI 交互规范](./UI_INTERACTION_SPEC_zh.md) 和 [Django 用户服务](./BACKEND_DJANGO_zh.md)。
 
-目标架构仍是：Vue Renderer 通过受控 IPC 访问 Electron Main；Electron Main 持有本地业务和 SQLite；Python Worker 只处理 BLE、USB 和系统窗口；社区服务独立部署。本地赛事必须离线可用。
+## 1. 当前切换点
 
-配套规范：
+实时比赛已经进入 Electron Main 主路径：Renderer 通过 typed IPC 启动 `MatchSessionService`，Platform Worker 连接设备并发送事件，TypeScript 计分域聚合分数，事件直接写入 SQLite。
 
-- 产品目标和社区边界见 [社区接口与桌面产品规范](./COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)。
-- 权限、Worker、OBS、打包和平台验收见 [Windows 与 macOS 平台适配规范](./PLATFORM_ADAPTATION_zh.md)。
+但这还不是完整切换：项目创建、继续项目、组别配置、设置、媒体 URL 规范化、导出和部分状态同步仍依赖 FastAPI、JSON/CSV 与 localhost WebSocket。Electron 启动时仍同时启动 FastAPI、Platform Worker 和 SQLite。
 
-## 2. 当前运行架构
+## 2. P0：稳定实时比赛切换
 
-应用处于双链路过渡期，不是目标架构的最终状态。
+1. 将“确保赛事上下文 + 写入事件”合并为一个 SQLite 事务，禁止 UI 已更新但事件未落盘。
+2. Worker 事件入口捕获并转换非法 payload、领域校验和数据库异常；不得让 EventEmitter 回调异常进入主进程未捕获路径。
+3. 把持久化失败、Worker 重连失败和媒体未对齐状态发布给 Renderer，计分页必须持续显示保存状态。
+4. 明确 `MatchSession` 的状态机：`idle -> starting -> active -> stopping -> completed/failed`，禁止仅用布尔值表达并发启动、失败回滚和恢复。
+5. 删除 Renderer 对同一上下文的 REST + IPC 双写；比赛激活后只允许 Electron Main 更新上下文。
+6. 补充集成测试：启动中失败、切换选手时并发事件、Worker 重启、SQLite 写入失败、重复事件、停止与重启并发。
 
-~~~text
-Vue Renderer
-  ├─ typed IPC ─ Electron Main
-  │                ├─ node:sqlite / ft-engine.db
-  │                ├─ Python Platform Worker (JSONL stdio)
-  │                └─ Overlay / Window / Shortcut / Update
-  │
-  └─ HTTP + WS ─ Legacy FastAPI backend
-                   ├─ 当前赛事和实时计分
-                   ├─ JSON / CSV 主写入
-                   ├─ YouTube 播放锚点
-                   └─ 导出与部分设置
-~~~
+完成门槛：实时计分不调用 `/setup`、`/reset`、`/teardown`、`/api/match/set_context` 或 legacy `/ws`，且断网和 FastAPI 不可用时仍可完成一场比赛。
 
-Electron 开发版和打包版目前同时启动：
+## 3. P1：项目与本地服务迁入 Main
 
-1. `server.py` legacy backend。
-2. `workers/local_platform_worker` 本机能力 Worker。
-3. Electron Main 内的 SQLite。
+1. 在 SQLite 中直接创建和更新 Competition、Stage、Group、Contestant、Referee、MatchSession，不再要求先创建 legacy 目录再导入。
+2. 把设置、设备备注、媒体绑定与播放锚点迁入 Main；YouTube URL 规范化应只有一个共享实现和一组契约测试。
+3. 将历史项目“继续”改为读取 SQLite 领域对象，不再通过 `/api/project/load` 修改 Python 全局活动项目。
+4. 将导出拆成 Main application service，通过系统保存对话框写入 `exports/`；CSV/SRT/ZIP 是派生产物，不是数据库主存储。
+5. 增加迁移结果页面：显示失败项目、原因、源目录、重试和只读打开操作。
 
-因此，文档和代码中不得把 SQLite 描述为当前唯一权威存储，也不得声称本地 REST 已移除。
+完成门槛：Renderer 不再导入 Axios、不创建 localhost WebSocket，本地赛事功能只依赖 IPC。
 
-## 3. 已完成的基础能力
+## 4. P2：收口组合根并移除 Legacy Backend
 
-| 范围 | 当前状态 | 说明 |
+在 FastAPI 仍存在期间，先按 [目标架构](./ARCHITECTURE_TARGET_zh.md) 将 `server.py` 降为薄组合根。不要继续往该文件增加设备、存储或导出逻辑。
+
+当 P0、P1 门槛满足后：
+
+1. 停止启动和打包 `server.py`/backend-engine。
+2. 删除 Python 中重复的 Scanner、BLE/USB DeviceNode、HeadlessReferee 和实时 WebSocket。
+3. 删除 shadow stdout 事件协议、legacy 双关断协调和相应构建资源。
+4. 保留一次性 legacy importer，直到支持窗口结束；它只能读旧项目，不得成为新项目运行依赖。
+
+## 5. 测试和冗余代码清理
+
+本轮只记录清理判定，不删除测试。
+
+| 对象 | 当前判定 | 删除条件 |
 | --- | --- | --- |
-| Electron 安全边界 | 已完成基础加固 | 主窗口与 Overlay 使用独立 Preload；`contextIsolation=true`、`nodeIntegration=false`、`sandbox=true`、`webSecurity=true`；外链和 Overlay 参数有校验。 |
-| Typed IPC | 部分完成 | 应用窗口、快捷键、Overlay、窗口枚举、设备扫描、比赛停止、legacy 项目列表/删除、报表和复盘已定义共享契约。 |
-| Python Worker 协议 | 已完成基础层 | JSON Lines over stdio、请求 ID、错误码、事件、超时、协议违规终止和有限重启已有测试。 |
-| 平台窗口能力 | 已切换 | Renderer 经 IPC 调用 Worker 的窗口列表和边界查询。 |
-| 设备扫描与退出 | 扫描已切换，退出已收口 | Renderer 经 IPC 调用 Worker 扫描 BLE/USB；退出计分页、窗口关闭、更新和清除数据会由 Main 并行关断 Worker 与 legacy 会话。连接、计分和 Reset 尚未切换。 |
-| TypeScript 计分领域 | 已实现但未接管运行时 | SINGLE、DUAL、重点扣分、Reset 和事件去重为纯函数，并与 legacy 用例对齐。 |
-| SQLite | 已建立影子库 | 使用 Electron 自带 `node:sqlite` 和显式 SQL；Schema 版本为 4，包含迁移前备份。当前没有使用 Drizzle。 |
-| Legacy 导入 | 已实现 | `config.json` 与裁判 CSV 可幂等导入；启动、项目列表和报表/复盘读取前会按需同步，源哈希变化时替换对应赛事。 |
-| 计分影子写入 | 已实现 | Legacy backend 在 CSV 写入后输出不可变事件，Electron Main 追加到 SQLite。 |
-| 历史读取与删除 | 已切到 SQLite 主链路 | 列表、报表和复盘通过 IPC 读取；数据库或增量导入不可用时，Renderer 在过渡期回退 REST。删除同时移除受校验的 legacy 源目录和 SQLite 赛事。 |
-| YouTube Demo | Legacy 链路可用 | URL 规范化、IFrame 播放、500ms 锚点、计分事件媒体时间和视频复盘已实现。 |
+| `test_scoring_baseline.py` 中计分聚合与 Reset | 过渡期兼容基线 | FastAPI 不再拥有实时计分后，由 `scoring-domain`、`match-session` 和 Worker 测试替代 |
+| `test_scoring_parity.py` | 暂时保留 | legacy `HeadlessReferee` 删除时一并删除；共享 fixture 继续由 TS 测试使用 |
+| `test_score_snapshot.py` | 暂时保留 | SQLite 事务集成测试覆盖快速事件和上下文切换后删除 |
+| baseline 中 BLE/USB 重连测试 | 应迁移而非直接删除 | 在 Platform Worker 设备服务测试补齐取消重连后，删除 server 版本 |
+| `legacy-shadow-event.test.mjs` 与 `src/main/legacy/shadow-event.mts` | 兼容层 | FastAPI shadow stdout 停止后删除 |
+| `device-lifecycle.test.mjs` 的双所有者断开用例 | 兼容层 | legacy backend 不再持有设备后，改为单 Worker 生命周期测试 |
+| `test_media.py`、`test_storage.py` | 仍有效 | URL/旧 CSV 兼容迁入新模块后迁移用例，不能直接删除 |
+| legacy importer 与测试 | 发布期兼容能力 | 旧项目支持窗口结束且迁移工具独立归档后删除 |
 
-当前测试覆盖计分领域、Worker 协议与跨语言握手、平台设备服务、SQLite 迁移、legacy 导入、影子事件、报表、复盘、媒体锚点和安全边界。
+禁止以“Node 已有同名测试”为理由直接删除 Python 用例。删除必须同时满足：对应 Python 生产路径不可达、新主路径有等价或更强覆盖、打包配置不再包含该生产模块。
 
-## 4. 仍由 Legacy Backend 负责的功能
+## 6. P3：桌面壳层与交互重构
 
-以下 Renderer 操作仍使用 Axios 或 localhost WebSocket：
+1. 先实现非最大化居中窗口、固定侧栏、受限工作区和主题 Token。
+2. 引入 Vue Router 和分域 Store，移除 `App.vue` 手写 `currentView` 与单一 `refereeStore`。
+3. 将历史赛事从首页模态框改成可筛选页面，将设置从全宽下拉改成独立页面或侧边抽屉。
+4. 按赛事配置、现场计分、复盘三个连续工作流重排控件；详细规则见 [UI 交互规范](./UI_INTERACTION_SPEC_zh.md)。
+5. Overlay 使用独立透明壳层，不继承主窗口背景、圆角和侧栏。
 
-- 应用设置和设备备注写入。
-- 设备永久重命名。
-- 项目创建、加载、组别更新和比赛上下文。
-- 比赛启动、实时计分 WebSocket、Reset 和停止比赛。
-- 媒体绑定与播放器锚点同步。
-- 已计分选手状态。
-- CSV、SRT 和 ZIP 导出。
+## 7. P4：独立用户服务
 
-Python Worker 已具备设备连接、断开、Reset、重命名和计数器事件能力，但这些方法尚未接入 Electron Main 的正式比赛状态机。
+本地链路稳定后再接入 `services/community`。第一期采用 Django + PostgreSQL，桌面端通过 Electron Main Gateway 调用；服务不可用不得阻断本地赛事。具体契约见 [Django 用户服务](./BACKEND_DJANGO_zh.md)。
 
-## 5. 当前数据流
-
-### 5.1 启动导入
-
-Electron Main 打开 `ft-engine.db` 后扫描 `match_data`。Importer 根据源目录内容哈希决定跳过或重新导入；打开项目列表时重新扫描，读取报表或复盘前只同步目标项目。导入失败会写日志并让 Renderer 回退 legacy REST，不阻止 legacy backend 继续运行。
-
-### 5.2 实时计分
-
-当前权威写入仍为：
-
-~~~text
-硬件 -> legacy backend -> 内存分数 -> CSV
-                           └-> FT_SHADOW_EVENT -> SQLite
-~~~
-
-影子事件初始没有 `match_session_id` 和 `referee_id`。报表或复盘读取前的单项目增量导入会读取更新后的 CSV，并把相同 `event_id` 的事件关联到正式会话和裁判。
-
-### 5.3 报表与复盘
-
-历史列表、报表和复盘以 SQLite 为主读取，并保持旧 Vue 页面需要的数据形状。数据库未就绪或导入失败时回退 legacy REST。继续项目仍由 legacy backend 加载，因为正式比赛上下文尚未迁入 Electron Main。
-
-## 6. 切换阻断项
-
-### P1：设备存在双所有者
-
-扫描由 Platform Worker 执行，正式连接和实时计分仍由 legacy backend 执行。两套进程都包含 BLE/USB 能力，可能出现缓存不一致、重复扫描、端口占用和重连状态分裂。过渡期的停止操作已经收口到 Electron Main，并会取消、等待心跳和重连任务；这降低了退出计分页后的设备占用风险，但不等于完成唯一所有者切换。设备连接切换完成前必须保留实机回归和清晰的唯一所有者规则。
-
-### P1：目标 UI 架构尚未开始
-
-Renderer 仍是 JavaScript、手写 `currentView` 和单一 `refereeStore`；Vue Router、分域 Store、工作台、Stage/MatchSession 编辑和账号模块尚未落地。产品规范中的目标页面不能标记为当前已实现。
-
-### P2：迁移错误只在日志可见
-
-Importer 返回逐项目错误，但当前 UI 不展示失败项目、重试或数据位置。正式切换前需要可见的迁移结果和恢复入口。
-
-## 7. 下一步顺序
-
-1. 将项目、Stage、Group、Contestant、Referee 和 MatchSession 的创建与状态迁入 Electron Main/SQLite。
-2. 让 Platform Worker 成为设备连接、Reset、重命名和事件的唯一所有者；Electron Main 用 TypeScript 领域函数聚合分数并事务写入 SQLite。
-3. 迁移设置、媒体锚点、Overlay 状态和导出，移除 Renderer 的 Axios 与 localhost WebSocket。
-4. 停止打包和启动 legacy FastAPI backend，删除影子写入和双写兼容层。
-5. 最后实施 Vue Router、分域 Store、账号 Gateway 和社区功能。
-
-## 8. 验证命令与切换门槛
-
-常规验证：
+## 8. 每阶段验证
 
 ~~~bash
 npm test
@@ -124,11 +81,4 @@ npm run build
 python -m unittest discover -s tests
 ~~~
 
-移除 legacy backend 前还必须满足：
-
-- 同一应用运行周期内，新建、继续计分、报表和视频复盘结果一致。
-- Worker 扫描到的 BLE/USB 设备可由同一 Worker 完成连接、计分、Reset、重命名和重连。
-- SQLite 是项目和事件的唯一写入源，CSV/SRT/ZIP 仅作为导出。
-- 未登录、断网或社区服务不可用时可完成完整赛事。
-- OBS、BLE、USB、YouTube、导出、Windows 和 macOS 打包通过实机验收。
-- 应用不再启动 FastAPI/Uvicorn，不监听本地 HTTP/WebSocket 端口。
+删除 Legacy Backend 前还需要 Windows/macOS 实机验证 BLE、USB、睡眠恢复、OBS Overlay、YouTube 嵌入、导出和打包安装。PostgreSQL 或社区服务不可用不属于本地比赛失败条件。

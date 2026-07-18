@@ -8,13 +8,12 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 项目正在执行路线 B 重构。当前版本是可运行的双链路过渡架构：
 
-- Vue Renderer 的窗口、快捷键、Overlay、窗口枚举、设备扫描/停止、历史项目列表/删除、报表和复盘已使用受控 IPC。
-- Electron Main 管理安全边界、Platform Worker 和影子 SQLite `ft-engine.db`。
-- Python Platform Worker 负责窗口能力和设备扫描，并已具备设备会话能力。
-- Legacy FastAPI backend 仍负责项目写入、实时计分、WebSocket、媒体锚点、CSV 和导出。
-- SQLite 已支持版本化迁移、备份、legacy 导入、计分影子写入以及历史列表/报表/复盘读取，但尚未成为唯一权威存储。
+- Vue Renderer 的窗口、Overlay、设备、实时比赛和主要历史读取已开始使用受控 IPC。
+- Electron Main 中的 `MatchSessionService` 已接入 Platform Worker、TypeScript 计分域和 SQLite 实时事件写入。
+- Legacy FastAPI 仍负责项目创建/加载、组别、设置、媒体 URL 规范化、WebSocket 兼容和导出。
+- SQLite schema v5 已支持迁移备份、legacy 导入、live-managed 项目、历史读取和实时事件，但新项目仍依赖 legacy 目录作为启动上下文。
 
-具体进度、阻断项和下一步见 [路线 B 重构状态](docs/REFACTOR_PLAN_ROUTE_B_zh.md)。不要依据目标架构文档假定 localhost backend 已经移除。
+实际调用链见 [当前架构](docs/ARCHITECTURE_CURRENT_zh.md)，下一步见 [路线 B 剩余重构计划](docs/REFACTOR_PLAN_ROUTE_B_zh.md)。不要依据目标文档假定 localhost backend 已经移除。
 
 ## 主要能力
 
@@ -116,8 +115,12 @@ tests/                Node 与 Python 回归测试
 
 ## 文档
 
-- [路线 B 重构状态](docs/REFACTOR_PLAN_ROUTE_B_zh.md)
-- [桌面产品与社区目标规范](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
+- [当前架构与已发现问题](docs/ARCHITECTURE_CURRENT_zh.md)
+- [目标架构与项目结构](docs/ARCHITECTURE_TARGET_zh.md)
+- [路线 B 剩余重构计划](docs/REFACTOR_PLAN_ROUTE_B_zh.md)
+- [桌面 UI 与交互目标](docs/UI_INTERACTION_SPEC_zh.md)
+- [Django 用户服务目标](docs/BACKEND_DJANGO_zh.md)
+- [用户与社区产品边界](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
 - [Windows 与 macOS 平台适配规范](docs/PLATFORM_ADAPTATION_zh.md)
 - [中文使用说明](Manual_Doc/zh/manual.md)
 

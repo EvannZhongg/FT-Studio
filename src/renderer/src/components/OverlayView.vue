@@ -342,6 +342,8 @@ const handleBackgroundClick = () => {
 }
 
 let removeInitialDataListener = () => {}
+let removeRefereeUpdateListener = () => {}
+let removeContextUpdateListener = () => {}
 if (window.ftOverlay) {
   removeInitialDataListener = window.ftOverlay.onInitialData((data) => {
     if (data.referees) {
@@ -363,6 +365,12 @@ if (window.ftOverlay) {
     if (data.projectConfig) {
       store.projectConfig = data.projectConfig
     }
+  })
+  removeRefereeUpdateListener = window.ftOverlay.onRefereeUpdated((update) => {
+    store.updateScore(update)
+  })
+  removeContextUpdateListener = window.ftOverlay.onContextUpdated((context) => {
+    store.currentContext = context
   })
 }
 
@@ -507,6 +515,8 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', stopDrag)
   if (resizeObserver) resizeObserver.disconnect()
   removeInitialDataListener()
+  removeRefereeUpdateListener()
+  removeContextUpdateListener()
 })
 
 const closeOverlay = () => window.ftOverlay?.close()

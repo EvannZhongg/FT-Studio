@@ -12,6 +12,7 @@ import {
   importLegacyProjects
 } from '../src/main/persistence/legacy-importer.mts'
 import { LocalDatabase } from '../src/main/persistence/local-database.mts'
+import { MatchSessionService } from '../src/main/match/match-session.mts'
 
 
 const tempRoots = []
@@ -94,6 +95,14 @@ test('imports old projects idempotently and preserves group referee indexes', ()
       referees: 2,
       events: 3
     })
+    const eventContext = database.resolveLegacyEventContext(
+      fixture.projectName,
+      'Final Group',
+      'Bob',
+      1
+    )
+    assert.equal(typeof eventContext?.matchSessionId, 'string')
+    assert.equal(typeof eventContext?.refereeId, 'string')
     const aliceReplay = database.getLegacyReplay(fixture.projectName, 'Open Group', 'Alice')
     assert.equal(aliceReplay?.binding, null)
     assert.deepEqual(aliceReplay?.events.map((event) => ({
@@ -198,6 +207,127 @@ test('rejects legacy source keys that escape the project root', () => {
     assert.throws(
       () => deleteLegacyProjectSource(fixture.legacyRoot, `${fixture.projectName}/config.json`),
       /LEGACY_SOURCE_KEY_INVALID/
+    )
+  } finally {
+    database.close()
+  }
+})
+
+test('keeps SQLite-managed live events when legacy source files change', () => {
+  const fixture = createLegacyFixture()
+  const database = new LocalDatabase(
+    path.join(fixture.root, 'ft-engine.db'),
+    path.join(fixture.root, 'backups')
+  )
+  database.open()
+  try {
+    importLegacyProjects(database, fixture.legacyRoot)
+    assert.equal(database.markLegacyProjectLive(fixture.projectName), true)
+    const context = database.ensureLegacyEventContext(
+      fixture.projectName,
+      'Final Group',
+      'Charlie',
+      1,
+      'Judge B',
+      'DUAL'
+    )
+    assert.ok(context)
+    database.appendScoreEvent({
+      eventId: 'live-charlie-1',
+      matchSessionId: context.matchSessionId,
+      refereeId: context.refereeId,
+      connectionId: 'match-ref-1-primary',
+      deviceId: 'device-primary',
+      role: 'primary',
+      eventType: 1,
+      deviceTimestampMs: 500,
+      receivedAt: '2026-07-18T12:02:00.000Z',
+      systemTime: '2026-07-18T12:02:00.000Z',
+      totalPlus: 1,
+      totalMinus: 0,
+      currentTotal: 1,
+      majorPenalty: 0
+    })
+
+    writeFileSync(fixture.newCsvPath, fixture.newCsv +
+      '2026-07-18 12:01:02.000,400,PRIMARY,3,1,3,0,0,event-bob-2,youtube,dQw4w9WgXcQ,5500,aligned\n')
+    assert.deepEqual(importLegacyProject(database, fixture.legacyRoot, fixture.projectName), {
+      found: true,
+      imported: false,
+      events: 0
+    })
+    assert.ok(database.getScoreEvents().some((event) => event.eventId === 'live-charlie-1'))
+    assert.ok(
+      database.getLegacyReport(fixture.projectName)?.config.groups[1].players.includes('Charlie')
+    )
+  } finally {
+    database.close()
+  }
+})
+
+test('serves worker-owned live scores from SQLite in the same run', async () => {
+  const fixture = createLegacyFixture()
+  const database = new LocalDatabase(
+    path.join(fixture.root, 'ft-engine.db'),
+    path.join(fixture.root, 'backups')
+  )
+  database.open()
+  try {
+    importLegacyProjects(database, fixture.legacyRoot)
+    database.markLegacyProjectLive(fixture.projectName)
+    const service = new MatchSessionService({
+      requestWorker: async (method, params = {}) => method === 'device.connectMany'
+        ? { connections: params.connections.map((value) => ({ ...value, status: 'connected' })) }
+        : { connections: [] },
+      appendEvent: (event) => database.appendScoreEvent(event),
+      ensureEventContext: (...args) => database.ensureLegacyEventContext(...args),
+      emitRefereeUpdate: () => {},
+      now: () => new Date('2026-07-18T13:00:00.000Z')
+    })
+    await service.start({
+      sourceKey: fixture.projectName,
+      groupName: 'Final Group',
+      contestantName: 'Bob',
+      referees: [{
+        index: 1,
+        name: 'Judge B',
+        mode: 'DUAL',
+        primaryDeviceId: 'primary-device',
+        secondaryDeviceId: 'secondary-device'
+      }]
+    })
+    service.handleWorkerEvent({
+      event: 'device.counter',
+      eventId: 'worker-primary',
+      payload: {
+        connectionId: 'match-ref-1-primary',
+        totalPlus: 5,
+        totalMinus: 2,
+        eventType: 1,
+        deviceTimestampMs: 1000
+      }
+    })
+    service.handleWorkerEvent({
+      event: 'device.counter',
+      eventId: 'worker-secondary',
+      payload: {
+        connectionId: 'match-ref-1-secondary',
+        totalPlus: 3,
+        totalMinus: 4,
+        eventType: -1,
+        deviceTimestampMs: 1010
+      }
+    })
+
+    assert.deepEqual(database.getLegacyReport(fixture.projectName)?.scores['Final Group'].Bob[1], {
+      total: 2,
+      plus: 5,
+      minus: 3,
+      penalty: 6
+    })
+    assert.ok(
+      database.getLegacyReplay(fixture.projectName, 'Final Group', 'Bob')?.events
+        .some((event) => event.event_id === 'worker-secondary')
     )
   } finally {
     database.close()

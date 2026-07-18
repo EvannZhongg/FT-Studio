@@ -8,13 +8,12 @@ FT Engine is an Electron desktop scoring application for competitive events. It 
 
 Route B is being introduced incrementally. The current application is a working dual-runtime transition:
 
-- Window, shortcut, overlay, window discovery, device scan/stop, historical project list/delete, report, and replay flows use constrained IPC.
-- Electron Main owns the security boundary, Platform Worker, and shadow SQLite database.
-- The Python Platform Worker provides window capabilities and device discovery and already contains device-session primitives.
-- The legacy FastAPI backend still owns project writes, live scoring, WebSocket updates, media anchors, CSV storage, and exports.
-- SQLite has versioned migrations, backups, legacy import, shadow score writes, and historical list/report/replay readers, but is not yet the only authoritative store.
+- Window, overlay, device, live-match, and primary historical reads are moving through constrained IPC.
+- Electron Main's `MatchSessionService` now connects the Platform Worker, TypeScript scoring domain, and live SQLite event writes.
+- The legacy FastAPI backend still owns project creation/loading, groups, settings, media URL normalization, compatibility WebSocket behavior, and exports.
+- SQLite schema v5 supports migration backups, legacy import, live-managed projects, historical reads, and live events, but new matches still require a legacy project source.
 
-See [Route B refactor status](docs/REFACTOR_PLAN_ROUTE_B_zh.md) for the exact progress, blockers, and cutover order. Do not assume the localhost backend has already been removed.
+See [current architecture](docs/ARCHITECTURE_CURRENT_zh.md) and the [remaining Route B plan](docs/REFACTOR_PLAN_ROUTE_B_zh.md). Do not assume the localhost backend has already been removed.
 
 ## Features
 
@@ -99,8 +98,12 @@ tests/                           Node and Python regression tests
 
 ## Documentation
 
-- [Route B refactor status](docs/REFACTOR_PLAN_ROUTE_B_zh.md)
-- [Desktop product and community target](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
+- [Current architecture and findings (Chinese)](docs/ARCHITECTURE_CURRENT_zh.md)
+- [Target architecture and project structure (Chinese)](docs/ARCHITECTURE_TARGET_zh.md)
+- [Remaining Route B plan (Chinese)](docs/REFACTOR_PLAN_ROUTE_B_zh.md)
+- [Desktop UI and interaction target (Chinese)](docs/UI_INTERACTION_SPEC_zh.md)
+- [Django user-service target (Chinese)](docs/BACKEND_DJANGO_zh.md)
+- [User and community product boundary (Chinese)](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
 - [Windows and macOS adaptation](docs/PLATFORM_ADAPTATION_zh.md)
 - [English user manual](Manual_Doc/en/manual.md)
 

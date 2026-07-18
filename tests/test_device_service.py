@@ -152,7 +152,11 @@ class DeviceServiceTests(unittest.TestCase):
       scanned = await service.scan(remarks={"ble-device-1": "Judge A"})
       self.assertEqual(scanned["devices"][0]["remark"], "Judge A")
 
-      await service.connect("judge-1-primary", "ble-device-1")
+      connected = await service.connect_many([{
+        "connectionId": "judge-1-primary",
+        "deviceId": "ble-device-1",
+      }])
+      self.assertEqual(connected["connections"][0]["status"], "connected")
       payload = struct.pack("<ibiiI", 2, 1, 3, 1, 1234)
       adapter.client.notify(None, payload)
       adapter.client.notify(None, payload)
@@ -164,12 +168,17 @@ class DeviceServiceTests(unittest.TestCase):
       self.assertEqual(counter_events[0][1]["totalPlus"], 3)
       self.assertEqual(counter_events[0][2], counter_events[1][2])
 
-      await service.reset("judge-1-primary")
+      reset = await service.reset_all()
+      self.assertEqual(reset["connections"][0]["status"], "ok")
       await service.rename("judge-1-primary", "Counter-Test")
       self.assertEqual(adapter.client.writes[0][0], b"\x01")
       self.assertEqual(adapter.client.writes[1][0], b"\x02Counter-Test")
       await service.disconnect("judge-1-primary")
       self.assertFalse(adapter.client.is_connected)
+      self.assertEqual(service.sessions, {})
+      renamed = await service.rename_discovered("ble-device-1", "Counter-Arena")
+      self.assertEqual(renamed["name"], "Counter-Arena")
+      self.assertEqual(adapter.client.writes[-1][0], b"\x02Counter-Arena")
       self.assertEqual(service.sessions, {})
 
     asyncio.run(scenario())

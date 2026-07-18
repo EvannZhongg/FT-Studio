@@ -2,6 +2,9 @@ import {defineStore} from 'pinia'
 import axios from 'axios'
 
 let stopMatchPromise = null
+let removeMatchRefereeListener = () => {}
+let removeMatchContextListener = () => {}
+let matchListenersConnected = false
 
 export const useRefereeStore = defineStore('referee', {
   state: () => ({
@@ -87,12 +90,14 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     updateScore(payload) {
-      const {index, score, status} = payload
+      const {index, name, mode, score, status} = payload
       if (!this.referees[index]) {
         this.referees[index] = {name: `Referee ${index}`}
       }
       this.referees[index] = {
         ...this.referees[index],
+        name: name || this.referees[index].name,
+        mode: mode || this.referees[index].mode,
         total: score.total,
         plus: score.plus,
         minus: score.minus,
@@ -169,6 +174,12 @@ export const useRefereeStore = defineStore('referee', {
 
     async renameDevices(devices) {
       try {
+        if (window.ftEngine?.devices) {
+          return await window.ftEngine.devices.rename(devices.map((device) => ({
+            deviceId: device.address,
+            name: device.name
+          })))
+        }
         const res = await axios.post(`${this.apiBase}/api/devices/rename`, {devices})
         return res.data.results || []
       } catch (e) {
@@ -219,6 +230,9 @@ export const useRefereeStore = defineStore('referee', {
           group: groupName,
           contestant: contestantName
         })
+        if (this.matchActive && window.ftEngine?.match) {
+          await window.ftEngine.match.setContext(groupName, contestantName)
+        }
         this.currentContext.groupName = groupName
         this.currentContext.contestantName = contestantName
       } catch (e) {
@@ -252,7 +266,6 @@ export const useRefereeStore = defineStore('referee', {
     async startMatch(config) {
       try {
         if (stopMatchPromise) await stopMatchPromise
-        await axios.post(`${this.apiBase}/setup`, config)
         this.matchActive = true
 
         // 重置本地状态
@@ -265,6 +278,22 @@ export const useRefereeStore = defineStore('referee', {
             status: {pri: 'connecting', sec: r.mode === 'DUAL' ? 'connecting' : 'n/a'}
           }
         })
+        if (window.ftEngine?.match) {
+          await window.ftEngine.match.start({
+            sourceKey: this.projectConfig.source_key,
+            groupName: this.currentContext.groupName,
+            contestantName: this.currentContext.contestantName,
+            referees: config.referees.map((referee) => ({
+              index: referee.index,
+              name: referee.name || `Referee ${referee.index}`,
+              mode: referee.mode,
+              primaryDeviceId: referee.pri_addr || null,
+              secondaryDeviceId: referee.mode === 'DUAL' ? referee.sec_addr || null : null
+            }))
+          })
+        } else {
+          await axios.post(`${this.apiBase}/setup`, config)
+        }
       } catch (e) {
         console.error("Setup failed:", e)
         await this.stopMatch()
@@ -276,7 +305,8 @@ export const useRefereeStore = defineStore('referee', {
 
     async resetAll() {
       try {
-        await axios.post(`${this.apiBase}/reset`)
+        if (window.ftEngine?.match) await window.ftEngine.match.reset()
+        else await axios.post(`${this.apiBase}/reset`)
         // 乐观更新
         for (const key in this.referees) {
           this.referees[key].total = 0
@@ -399,6 +429,25 @@ export const useRefereeStore = defineStore('referee', {
       }
     },
 
+    connectMatchEvents() {
+      if (matchListenersConnected || !window.ftEngine?.match) return
+      removeMatchRefereeListener = window.ftEngine.match.onRefereeUpdated((update) => {
+        this.updateScore(update)
+      })
+      removeMatchContextListener = window.ftEngine.match.onContextUpdated((context) => {
+        this.currentContext = context
+      })
+      matchListenersConnected = true
+    },
+
+    disconnectMatchEvents() {
+      removeMatchRefereeListener()
+      removeMatchContextListener()
+      removeMatchRefereeListener = () => {}
+      removeMatchContextListener = () => {}
+      matchListenersConnected = false
+    },
+
     async saveMediaBinding(groupName, contestantName, url) {
       const res = await axios.post(`${this.apiBase}/api/project/media`, {
         group: groupName,
@@ -409,12 +458,20 @@ export const useRefereeStore = defineStore('referee', {
       if (!this.projectConfig.media) this.projectConfig.media = {}
       if (!this.projectConfig.media[groupName]) this.projectConfig.media[groupName] = {}
       this.projectConfig.media[groupName][contestantName] = res.data.binding
+      if (window.ftEngine?.match) {
+        await window.ftEngine.match.setMediaBinding(groupName, contestantName, {
+          provider: res.data.binding.provider,
+          mediaId: res.data.binding.video_id,
+          canonicalUrl: res.data.binding.canonical_url
+        })
+      }
       return res.data.binding
     },
 
     async syncMediaPlayback(playback) {
       try {
-        await axios.post(`${this.apiBase}/api/media/playback/sync`, playback)
+        if (window.ftEngine?.match) await window.ftEngine.match.syncPlayback(playback)
+        else await axios.post(`${this.apiBase}/api/media/playback/sync`, playback)
       } catch (e) {
         console.debug('Playback sync failed', e)
       }
@@ -447,6 +504,14 @@ export const useRefereeStore = defineStore('referee', {
     async fetchScoredPlayers(groupName) {
       if (!groupName) return
       try {
+        if (window.ftEngine?.match && this.projectConfig.source_key) {
+          const scored = await window.ftEngine.match.listScored(
+            this.projectConfig.source_key,
+            groupName
+          )
+          this.scoredPlayers = new Set(scored)
+          return
+        }
         const res = await axios.post(`${this.apiBase}/api/group/status`, {group: groupName})
         if (res.data.scored) {
           this.scoredPlayers = new Set(res.data.scored)

@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import threading
 import time
+import uuid
 from typing import Any, Awaitable, Callable
 
 from .device_protocol import (
@@ -494,15 +495,53 @@ class DeviceService:
       await session.disconnect()
     return {"connectionId": connection_id}
 
+  async def connect_many(self, connections):
+    async def connect_one(value):
+      try:
+        result = await self.connect(value["connectionId"], value["deviceId"])
+        return {**result, "status": "connected"}
+      except DeviceError as error:
+        return {
+          "connectionId": value["connectionId"],
+          "deviceId": value["deviceId"],
+          "status": "error",
+          "error": error.code,
+        }
+
+    results = await asyncio.gather(*(connect_one(value) for value in connections))
+    return {"connections": results}
+
   async def reset(self, connection_id: str):
     session = self._session(connection_id)
     await session.reset()
     return {"connectionId": connection_id}
 
+  async def reset_all(self):
+    connection_ids = list(self.sessions)
+
+    async def reset_one(connection_id):
+      try:
+        await self.reset(connection_id)
+        return {"connectionId": connection_id, "status": "ok"}
+      except DeviceError as error:
+        return {"connectionId": connection_id, "status": "error", "error": error.code}
+
+    results = await asyncio.gather(*(reset_one(value) for value in connection_ids))
+    return {"connections": results}
+
   async def rename(self, connection_id: str, name: str):
     session = self._session(connection_id)
     await session.rename(name)
     return {"connectionId": connection_id, "name": name}
+
+  async def rename_discovered(self, device_id: str, name: str):
+    connection_id = f"rename-{uuid.uuid4()}"
+    await self.connect(connection_id, device_id)
+    try:
+      await self.rename(connection_id, name)
+      return {"deviceId": device_id, "name": name}
+    finally:
+      await self.disconnect(connection_id)
 
   async def close(self):
     sessions = list(self.sessions.values())

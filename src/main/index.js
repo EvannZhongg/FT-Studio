@@ -18,6 +18,7 @@ import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
 import { DeviceLifecycle } from './match/device-lifecycle.mjs'
+import { MatchSessionService } from './match/match-session.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
 import {
   deleteLegacyProjectSource,
@@ -145,8 +146,41 @@ const deviceLifecycle = new DeviceLifecycle({
   }
 })
 
-function stopDeviceSessions(reason) {
-  return deviceLifecycle.stop(reason)
+function sendMatchEvent(channel, payload) {
+  for (const window of [mainWindow, overlayWindow]) {
+    if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
+  }
+}
+
+const matchSession = new MatchSessionService({
+  requestWorker: (method, params = {}, timeoutMs) => {
+    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
+    return platformWorker.request(method, params, timeoutMs)
+  },
+  appendEvent: (event) => {
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.appendScoreEvent(event)
+  },
+  ensureEventContext: (...args) => {
+    if (!localDatabase) return null
+    return localDatabase.ensureLegacyEventContext(...args)
+  },
+  upsertMediaBinding: (...args) => {
+    if (!localDatabase) return false
+    return localDatabase.upsertLegacyMediaBinding(...args)
+  },
+  emitRefereeUpdate: (update) => sendMatchEvent(IPC_CHANNELS.match.refereeUpdated, update),
+  emitContextUpdate: (context) => sendMatchEvent(IPC_CHANNELS.match.contextUpdated, context),
+  onPersistenceError: (code) => {
+    console.error('[Electron] Match event persistence failed:', code)
+    logToFile(`Match event persistence failed: ${code}`)
+  }
+})
+
+async function stopDeviceSessions(reason) {
+  const result = await deviceLifecycle.stop(reason)
+  matchSession.finish()
+  return result
 }
 
 const createPyProc = () => {
@@ -345,9 +379,11 @@ async function createPlatformWorker() {
   worker.on('protocolError', (error) => {
     console.error('[Electron] Platform Worker protocol error:', error.code)
   })
+  worker.on('event', (message) => matchSession.handleWorkerEvent(message))
   worker.on('exit', ({ code, signal }) => {
     console.warn(`[Electron] Platform Worker exited (code=${code}, signal=${signal})`)
     if (platformWorker === worker) platformWorker = null
+    if (!platformWorkerStopping) matchSession.markWorkerUnavailable()
     schedulePlatformWorkerRestart()
   })
 
@@ -356,6 +392,7 @@ async function createPlatformWorker() {
     const hello = await worker.request('system.hello')
     console.log('[Electron] Platform Worker ready:', hello)
     logToFile(`Platform Worker ready: ${JSON.stringify(hello)}`)
+    if (matchSession.isActive()) await matchSession.reconnectWorker()
     return hello
   } catch (error) {
     worker.terminate()
@@ -615,6 +652,94 @@ app.whenReady().then(async () => {
     }
     if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
     return platformWorker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.devices.rename, async (event, value) => {
+    assertMainSender(event)
+    if (!Array.isArray(value) || value.length > 100) {
+      throw new Error('IPC_INVALID_DEVICE_RENAME')
+    }
+    if (!platformWorker) throw new Error('WORKER_NOT_RUNNING')
+    return Promise.all(value.map(async (item) => {
+      if (
+        !item ||
+        typeof item.deviceId !== 'string' ||
+        !item.deviceId ||
+        item.deviceId.length > 128 ||
+        typeof item.name !== 'string' ||
+        !item.name.trim() ||
+        Buffer.byteLength(item.name.trim(), 'utf8') > 32
+      ) {
+        return { deviceId: String(item?.deviceId || ''), name: String(item?.name || ''), status: 'error', error: 'INVALID_PARAMS' }
+      }
+      try {
+        await platformWorker.request('device.renameDiscovered', {
+          deviceId: item.deviceId,
+          name: item.name.trim()
+        }, 15000)
+        return { deviceId: item.deviceId, name: item.name.trim(), status: 'ok' }
+      } catch (error) {
+        return { deviceId: item.deviceId, name: item.name.trim(), status: 'error', error: error.code || 'DEVICE_RENAME_FAILED' }
+      }
+    }))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.start, async (event, input) => {
+    assertMainSender(event)
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    const imported = importLegacyProject(
+      localDatabase,
+      getLegacyProjectRoot(),
+      input?.sourceKey
+    )
+    if (!imported.found) throw new Error('MATCH_PROJECT_NOT_FOUND')
+    if (!localDatabase.markLegacyProjectLive(input.sourceKey)) {
+      throw new Error('MATCH_PROJECT_NOT_FOUND')
+    }
+    await disconnectLegacyDevices()
+    return matchSession.start(input)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.setContext, (event, groupName, contestantName) => {
+    assertMainSender(event)
+    matchSession.setContext(groupName, contestantName)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.syncPlayback, (event, playback) => {
+    assertMainSender(event)
+    if (!playback || typeof playback !== 'object' || Array.isArray(playback)) {
+      throw new Error('IPC_INVALID_MATCH_PLAYBACK')
+    }
+    matchSession.updatePlayback(playback)
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.match.setMediaBinding,
+    (event, groupName, contestantName, binding) => {
+      assertMainSender(event)
+      return matchSession.setMediaBinding(groupName, contestantName, binding)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.match.listScored, (event, sourceKey, groupName) => {
+    assertMainSender(event)
+    if (
+      typeof sourceKey !== 'string' ||
+      !sourceKey ||
+      sourceKey.length > 256 ||
+      typeof groupName !== 'string' ||
+      !groupName ||
+      groupName.length > 256
+    ) {
+      throw new Error('IPC_INVALID_MATCH_CONTEXT')
+    }
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.listLegacyScoredContestants(sourceKey, groupName)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.match.reset, async (event) => {
+    assertMainSender(event)
+    return matchSession.reset()
   })
 
   ipcMain.handle(IPC_CHANNELS.match.stop, async (event) => {

@@ -30,10 +30,19 @@ const IPC_CHANNELS = {
     getWindowBounds: 'platform:get-window-bounds'
   },
   devices: {
-    scan: 'devices:scan'
+    scan: 'devices:scan',
+    rename: 'devices:rename'
   },
   match: {
-    stop: 'match:stop'
+    start: 'match:start',
+    setContext: 'match:set-context',
+    syncPlayback: 'match:sync-playback',
+    setMediaBinding: 'match:set-media-binding',
+    listScored: 'match:list-scored',
+    reset: 'match:reset',
+    stop: 'match:stop',
+    refereeUpdated: 'match:referee-updated',
+    contextUpdated: 'match:context-updated'
   },
   replay: {
     getLegacy: 'replay:get-legacy'
@@ -86,10 +95,27 @@ const ftEngine = {
       ipcRenderer.invoke(IPC_CHANNELS.platform.getWindowBounds, windowId)
   },
   devices: {
-    scan: (options) => ipcRenderer.invoke(IPC_CHANNELS.devices.scan, options)
+    scan: (options) => ipcRenderer.invoke(IPC_CHANNELS.devices.scan, options),
+    rename: (requests) => ipcRenderer.invoke(IPC_CHANNELS.devices.rename, requests)
   },
   match: {
-    stop: () => ipcRenderer.invoke(IPC_CHANNELS.match.stop)
+    start: (input) => ipcRenderer.invoke(IPC_CHANNELS.match.start, input),
+    setContext: (groupName, contestantName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.match.setContext, groupName, contestantName),
+    syncPlayback: (playback) => ipcRenderer.invoke(IPC_CHANNELS.match.syncPlayback, playback),
+    setMediaBinding: (groupName, contestantName, binding) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.match.setMediaBinding,
+        groupName,
+        contestantName,
+        binding
+      ),
+    listScored: (sourceKey, groupName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.match.listScored, sourceKey, groupName),
+    reset: () => ipcRenderer.invoke(IPC_CHANNELS.match.reset),
+    stop: () => ipcRenderer.invoke(IPC_CHANNELS.match.stop),
+    onRefereeUpdated: (callback) => subscribe(IPC_CHANNELS.match.refereeUpdated, callback),
+    onContextUpdated: (callback) => subscribe(IPC_CHANNELS.match.contextUpdated, callback)
   },
   replay: {
     getLegacy: (sourceKey, groupName, contestantName) =>

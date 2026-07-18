@@ -22,10 +22,19 @@ export const IPC_CHANNELS = {
     getWindowBounds: 'platform:get-window-bounds'
   },
   devices: {
-    scan: 'devices:scan'
+    scan: 'devices:scan',
+    rename: 'devices:rename'
   },
   match: {
-    stop: 'match:stop'
+    start: 'match:start',
+    setContext: 'match:set-context',
+    syncPlayback: 'match:sync-playback',
+    setMediaBinding: 'match:set-media-binding',
+    listScored: 'match:list-scored',
+    reset: 'match:reset',
+    stop: 'match:stop',
+    refereeUpdated: 'match:referee-updated',
+    contextUpdated: 'match:context-updated'
   },
   replay: {
     getLegacy: 'replay:get-legacy'
@@ -108,6 +117,39 @@ export interface MatchStopResult {
   ok: boolean
   worker: DeviceShutdownStep
   legacy: DeviceShutdownStep
+}
+
+export interface DeviceRenameRequest {
+  deviceId: string
+  name: string
+}
+
+export interface DeviceRenameResult extends DeviceRenameRequest {
+  status: 'ok' | 'error'
+  error?: string
+}
+
+export interface MatchRefereeBinding {
+  index: number
+  name: string
+  mode: 'SINGLE' | 'DUAL'
+  primaryDeviceId: string | null
+  secondaryDeviceId: string | null
+}
+
+export interface MatchStartInput {
+  sourceKey: string
+  groupName: string
+  contestantName: string
+  referees: MatchRefereeBinding[]
+}
+
+export interface MatchRefereeUpdate {
+  index: number
+  name: string
+  mode: 'SINGLE' | 'DUAL'
+  score: { total: number; plus: number; minus: number; penalty: number }
+  status: { pri: string; sec: string }
 }
 
 export interface ReplayEvent {
@@ -203,9 +245,24 @@ export interface FtEngineApi {
   }
   devices: {
     scan: (options: { flush: boolean; remarks: Record<string, string> }) => Promise<DeviceScanResult>
+    rename: (requests: DeviceRenameRequest[]) => Promise<DeviceRenameResult[]>
   }
   match: {
+    start: (input: MatchStartInput) => Promise<{ connections: unknown[] }>
+    setContext: (groupName: string, contestantName: string) => Promise<void>
+    syncPlayback: (playback: Record<string, unknown>) => Promise<void>
+    setMediaBinding: (
+      groupName: string,
+      contestantName: string,
+      binding: { provider: string; mediaId: string; canonicalUrl: string }
+    ) => Promise<boolean>
+    listScored: (sourceKey: string, groupName: string) => Promise<string[]>
+    reset: () => Promise<unknown>
     stop: () => Promise<MatchStopResult>
+    onRefereeUpdated: (callback: (update: MatchRefereeUpdate) => void) => Unsubscribe
+    onContextUpdated: (
+      callback: (context: { groupName: string; contestantName: string }) => void
+    ) => Unsubscribe
   }
   replay: {
     getLegacy: (sourceKey: string, groupName: string, contestantName: string) =>
@@ -229,4 +286,8 @@ export interface FtOverlayApi {
   close: () => void
   setClickThrough: (enabled: boolean) => void
   onInitialData: (callback: (data: OverlayInitialState) => void) => Unsubscribe
+  onRefereeUpdated: (callback: (update: MatchRefereeUpdate) => void) => Unsubscribe
+  onContextUpdated: (
+    callback: (context: { groupName: string; contestantName: string }) => void
+  ) => Unsubscribe
 }

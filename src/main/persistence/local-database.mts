@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 
-export const LATEST_SCHEMA_VERSION = 4
+export const LATEST_SCHEMA_VERSION = 5
 
 export interface StoredScoreEvent {
   eventId: string
@@ -115,6 +116,11 @@ export interface LegacyReport {
     minus: number
     penalty: number
   }>>>
+}
+
+export interface LegacyEventContext {
+  matchSessionId: string
+  refereeId: string
 }
 
 const MIGRATIONS = [
@@ -335,6 +341,13 @@ const MIGRATIONS = [
       ALTER TABLE competition_groups
         ADD COLUMN legacy_ref_count INTEGER NOT NULL DEFAULT 0;
     `
+  },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE legacy_imports
+        ADD COLUMN is_live_managed INTEGER NOT NULL DEFAULT 0 CHECK (is_live_managed IN (0, 1));
+    `
   }
 ] as const
 
@@ -410,9 +423,13 @@ export class LocalDatabase {
     validateLegacyImport(input)
     const database = this.requireDatabase()
     const existing = database.prepare(
-      'SELECT source_hash, competition_id FROM legacy_imports WHERE source_key = ?'
-    ).get(input.sourceKey) as { source_hash: string; competition_id: string } | undefined
-    if (existing?.source_hash === input.sourceHash) {
+      'SELECT source_hash, competition_id, is_live_managed FROM legacy_imports WHERE source_key = ?'
+    ).get(input.sourceKey) as {
+      source_hash: string
+      competition_id: string
+      is_live_managed: number
+    } | undefined
+    if (existing?.source_hash === input.sourceHash || existing?.is_live_managed === 1) {
       return { imported: false, eventCount: 0 }
     }
 
@@ -551,6 +568,193 @@ export class LocalDatabase {
       referees: Number(row.referee_count),
       events: Number(row.event_count)
     }
+  }
+
+  resolveLegacyEventContext(
+    sourceKey: string,
+    groupName: string,
+    contestantName: string,
+    refereeIndex: number
+  ): LegacyEventContext | null {
+    const row = this.requireDatabase().prepare(`
+      SELECT ms.id AS match_session_id, r.id AS referee_id
+      FROM legacy_imports li
+      JOIN stages s ON s.competition_id = li.competition_id
+      JOIN competition_groups g ON g.stage_id = s.id
+      JOIN contestants p ON p.group_id = g.id
+      JOIN match_sessions ms ON ms.contestant_id = p.id AND ms.attempt_number = 1
+      JOIN referees r ON r.group_id = g.id AND r.source_referee_index = ?
+      WHERE li.source_key = ? AND g.name = ? AND p.name = ?
+      LIMIT 1
+    `).get(refereeIndex, sourceKey, groupName, contestantName) as {
+      match_session_id: string
+      referee_id: string
+    } | undefined
+    return row ? {
+      matchSessionId: row.match_session_id,
+      refereeId: row.referee_id
+    } : null
+  }
+
+  markLegacyProjectLive(sourceKey: string): boolean {
+    const result = this.requireDatabase().prepare(`
+      UPDATE legacy_imports SET is_live_managed = 1 WHERE source_key = ?
+    `).run(sourceKey)
+    return Number(result.changes) === 1
+  }
+
+  ensureLegacyEventContext(
+    sourceKey: string,
+    groupName: string,
+    contestantName: string,
+    refereeIndex: number,
+    refereeName: string,
+    refereeMode: 'SINGLE' | 'DUAL'
+  ): LegacyEventContext | null {
+    const existing = this.resolveLegacyEventContext(
+      sourceKey,
+      groupName,
+      contestantName,
+      refereeIndex
+    )
+    if (existing) return existing
+
+    const database = this.requireDatabase()
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      const stage = database.prepare(`
+        SELECT s.id
+        FROM legacy_imports li
+        JOIN stages s ON s.competition_id = li.competition_id
+        WHERE li.source_key = ?
+        ORDER BY s.position
+        LIMIT 1
+      `).get(sourceKey) as { id: string } | undefined
+      if (!stage) {
+        database.exec('ROLLBACK')
+        return null
+      }
+
+      let group = database.prepare(`
+        SELECT id, position FROM competition_groups WHERE stage_id = ? AND name = ? LIMIT 1
+      `).get(stage.id, groupName) as { id: string; position: number } | undefined
+      if (!group) {
+        const row = database.prepare(`
+          SELECT COALESCE(MAX(position), -1) + 1 AS position
+          FROM competition_groups WHERE stage_id = ?
+        `).get(stage.id) as { position: number }
+        group = {
+          id: stableDatabaseId(sourceKey, 'live-group', groupName),
+          position: Number(row.position)
+        }
+        database.prepare(`
+          INSERT INTO competition_groups (id, stage_id, name, position, legacy_ref_count)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(group.id, stage.id, groupName, group.position, refereeIndex)
+      }
+
+      let contestant = database.prepare(`
+        SELECT id FROM contestants WHERE group_id = ? AND name = ? LIMIT 1
+      `).get(group.id, contestantName) as { id: string } | undefined
+      if (!contestant) {
+        const row = database.prepare(`
+          SELECT COALESCE(MAX(position), -1) + 1 AS position
+          FROM contestants WHERE group_id = ?
+        `).get(group.id) as { position: number }
+        contestant = { id: stableDatabaseId(sourceKey, group.id, 'live-contestant', contestantName) }
+        database.prepare(`
+          INSERT INTO contestants (id, group_id, name, position, status)
+          VALUES (?, ?, ?, ?, 'active')
+        `).run(contestant.id, group.id, contestantName, Number(row.position))
+      }
+
+      let referee = database.prepare(`
+        SELECT id FROM referees WHERE group_id = ? AND source_referee_index = ? LIMIT 1
+      `).get(group.id, refereeIndex) as { id: string } | undefined
+      if (!referee) {
+        referee = {
+          id: stableDatabaseId(sourceKey, group.id, 'live-referee', String(refereeIndex))
+        }
+        database.prepare(`
+          INSERT INTO referees (
+            id, stage_id, referee_index, name, mode, group_id, source_referee_index
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          referee.id,
+          stage.id,
+          group.position * 100000 + refereeIndex,
+          refereeName,
+          refereeMode,
+          group.id,
+          refereeIndex
+        )
+      }
+
+      let session = database.prepare(`
+        SELECT id FROM match_sessions WHERE contestant_id = ? AND attempt_number = 1
+      `).get(contestant.id) as { id: string } | undefined
+      if (!session) {
+        session = { id: stableDatabaseId(sourceKey, contestant.id, 'live-session', '1') }
+        database.prepare(`
+          INSERT INTO match_sessions (
+            id, contestant_id, attempt_number, status, started_at, rule_version
+          ) VALUES (?, ?, 1, 'active', ?, 'route-b-v1')
+        `).run(session.id, contestant.id, new Date().toISOString())
+      }
+
+      database.exec('COMMIT')
+      return { matchSessionId: session.id, refereeId: referee.id }
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  upsertLegacyMediaBinding(
+    sourceKey: string,
+    groupName: string,
+    contestantName: string,
+    binding: { provider: string; mediaId: string; canonicalUrl: string }
+  ): boolean {
+    const contestant = this.requireDatabase().prepare(`
+      SELECT p.id
+      FROM legacy_imports li
+      JOIN stages s ON s.competition_id = li.competition_id
+      JOIN competition_groups g ON g.stage_id = s.id
+      JOIN contestants p ON p.group_id = g.id
+      WHERE li.source_key = ? AND g.name = ? AND p.name = ?
+      LIMIT 1
+    `).get(sourceKey, groupName, contestantName) as { id: string } | undefined
+    if (!contestant) return false
+    this.requireDatabase().prepare(`
+      INSERT INTO media_bindings (id, contestant_id, provider, media_id, canonical_url)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(contestant_id, provider) DO UPDATE SET
+        media_id = excluded.media_id,
+        canonical_url = excluded.canonical_url
+    `).run(
+      stableDatabaseId(sourceKey, contestant.id, 'media', binding.provider),
+      contestant.id,
+      binding.provider,
+      binding.mediaId,
+      binding.canonicalUrl
+    )
+    return true
+  }
+
+  listLegacyScoredContestants(sourceKey: string, groupName: string): string[] {
+    const rows = this.requireDatabase().prepare(`
+      SELECT DISTINCT p.name, p.position
+      FROM legacy_imports li
+      JOIN stages s ON s.competition_id = li.competition_id
+      JOIN competition_groups g ON g.stage_id = s.id
+      JOIN contestants p ON p.group_id = g.id
+      JOIN match_sessions ms ON ms.contestant_id = p.id
+      JOIN score_events e ON e.match_session_id = ms.id
+      WHERE li.source_key = ? AND g.name = ?
+      ORDER BY p.position
+    `).all(sourceKey, groupName) as Array<{ name: string }>
+    return rows.map((row) => row.name)
   }
 
   getLegacyReplay(sourceKey: string, groupName: string, contestantName: string): {
@@ -886,4 +1090,8 @@ function validateLegacyImport(input: LegacyProjectImport): void {
 function legacyRefereeIndex(connectionId: string): number {
   const match = /^legacy-ref-(\d+)-/.exec(connectionId)
   return match ? Number(match[1]) : 0
+}
+
+function stableDatabaseId(...parts: string[]): string {
+  return createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 32)
 }

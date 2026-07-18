@@ -558,7 +558,7 @@ const onModeChange = (binding) => { if (binding.mode === 'SINGLE') binding.sec_a
 const goBackFromStep3 = () => { if (form.mode === 'TOURNAMENT') currentStep.value = 2; else currentStep.value = 1 }
 const finishSetup = async () => {
   if (selectedGroupToRun.value) { selectedGroupToRun.value.referees = JSON.parse(JSON.stringify(bindings.value)); await store.updateGroups(groups.value) }
-  const groupName = selectedGroupToRun.value.name; await store.setMatchContext(groupName, ""); await store.startMatch({ referees: bindings.value }); isConnecting.value = true; showForceEntry.value = false;
+  const groupName = selectedGroupToRun.value.name; const contestantName = selectedGroupToRun.value.players?.[0] || ""; await store.setMatchContext(groupName, contestantName); await store.startMatch({ referees: bindings.value }); isConnecting.value = true; showForceEntry.value = false;
   const timeout = setTimeout(() => { showForceEntry.value = true }, 8000);
   connectTimer = setInterval(async () => { if (checkAllConnected()) { clearTimeout(timeout); clearInterval(connectTimer); await store.resetAll(); isConnecting.value = false; emit('finished') } else if (checkAnyError()) showForceEntry.value = true }, 500)
 }

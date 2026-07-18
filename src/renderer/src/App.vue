@@ -66,6 +66,7 @@ onMounted(() => {
 
   // 1. 建立 WebSocket 连接 (原有逻辑)
   store.connectWebSocket()
+  store.connectMatchEvents()
 
   // 2. 自动更新监听逻辑 (新增)
   // 仅在 Electron 环境下运行
@@ -95,6 +96,7 @@ onMounted(() => {
 onUnmounted(() => {
   removeUpdateAvailableListener()
   removeUpdateDownloadedListener()
+  store.disconnectMatchEvents()
 })
 
 const handleNavigate = (view) => {

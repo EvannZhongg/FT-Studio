@@ -30,6 +30,8 @@ class FakeWindowTracker:
 class FakeDeviceService:
   def __init__(self):
     self.last_scan = None
+    self.last_connections = None
+    self.renamed = None
 
   async def scan(self, flush=False, remarks=None):
     self.last_scan = {"flush": flush, "remarks": remarks}
@@ -37,6 +39,17 @@ class FakeDeviceService:
 
   async def connect(self, connection_id, device_id):
     return {"connectionId": connection_id, "deviceId": device_id}
+
+  async def connect_many(self, connections):
+    self.last_connections = connections
+    return {"connections": [{**value, "status": "connected"} for value in connections]}
+
+  async def reset_all(self):
+    return {"connections": []}
+
+  async def rename_discovered(self, device_id, name):
+    self.renamed = {"deviceId": device_id, "name": name}
+    return self.renamed
 
   async def close(self):
     return None
@@ -125,6 +138,28 @@ class WorkerProtocolTests(unittest.TestCase):
 
     invalid = self.dispatch(method="device.connect", params={"deviceId": "device-1"})
     self.assertEqual(invalid["error"]["code"], "INVALID_PARAMS")
+
+    connected = self.dispatch(method="device.connectMany", params={
+      "connections": [{"connectionId": "judge-1-primary", "deviceId": "device-1"}],
+    })
+    self.assertEqual(connected["result"]["connections"][0]["status"], "connected")
+    self.assertEqual(devices.last_connections[0]["deviceId"], "device-1")
+
+    duplicate = self.dispatch(method="device.connectMany", params={
+      "connections": [
+        {"connectionId": "first", "deviceId": "device-1"},
+        {"connectionId": "second", "deviceId": "device-1"},
+      ],
+    })
+    self.assertEqual(duplicate["error"]["code"], "INVALID_PARAMS")
+
+    reset = self.dispatch(method="device.resetAll")
+    self.assertEqual(reset["result"], {"connections": []})
+    renamed = self.dispatch(
+      method="device.renameDiscovered",
+      params={"deviceId": "device-1", "name": "Counter Arena"},
+    )
+    self.assertEqual(renamed["result"]["name"], "Counter Arena")
 
   def test_encoded_response_is_one_json_line(self):
     encoded = encode_message({"message": "计分"})
