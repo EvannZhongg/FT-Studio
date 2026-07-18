@@ -14,6 +14,7 @@ import {
   isWindows
 } from './platform'
 import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
+import { IPC_CHANNELS } from '../shared/ipc-contract'
 
 const { spawn, execSync } = require('child_process')
 const net = require('net')
@@ -302,19 +303,19 @@ app.whenReady().then(async () => {
   logToFile('Main window created')
 
   autoUpdater.on('update-available', () => {
-    if (mainWindow) mainWindow.webContents.send('app:update-available')
+    if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.app.updateAvailable)
   })
 
   autoUpdater.on('update-downloaded', () => {
-    if (mainWindow) mainWindow.webContents.send('app:update-downloaded')
+    if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.app.updateDownloaded)
   })
 
-  ipcMain.on('app:restart-for-update', (event) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'app:restart-for-update')) return
+  ipcMain.on(IPC_CHANNELS.app.restartForUpdate, (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.app.restartForUpdate)) return
     autoUpdater.quitAndInstall()
   })
 
-  ipcMain.handle('shortcuts:register', (event, shortcut) => {
+  ipcMain.handle(IPC_CHANNELS.shortcuts.register, (event, shortcut) => {
     assertMainSender(event)
     globalShortcut.unregisterAll()
 
@@ -326,7 +327,7 @@ app.whenReady().then(async () => {
       const registered = globalShortcut.register(shortcut, () => {
         console.log('[Electron] Global shortcut triggered:', shortcut)
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('shortcuts:triggered')
+          mainWindow.webContents.send(IPC_CHANNELS.shortcuts.triggered)
         }
       })
 
@@ -341,18 +342,18 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('shortcuts:unregister', (event) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'shortcuts:unregister')) return
+  ipcMain.on(IPC_CHANNELS.shortcuts.unregister, (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.shortcuts.unregister)) return
     globalShortcut.unregisterAll()
     console.log('[Electron] Global shortcuts unregistered')
   })
 
-  ipcMain.handle('app:get-server-config', (event) => {
+  ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
     assertMainSender(event)
     return appConfig
   })
 
-  ipcMain.handle('app:delete-local-data', async (event) => {
+  ipcMain.handle(IPC_CHANNELS.app.deleteLocalData, async (event) => {
     assertMainSender(event)
     const result = deleteLocalDataFiles()
     if (result.failed.length > 0) {
@@ -367,15 +368,15 @@ app.whenReady().then(async () => {
     return { ok: true, ...result }
   })
 
-  ipcMain.on('window:set-content-protection', (event, enabled) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'window:set-content-protection')) return
+  ipcMain.on(IPC_CHANNELS.window.setContentProtection, (event, enabled) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.window.setContentProtection)) return
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setContentProtection(!!enabled)
     }
   })
 
-  ipcMain.on('window:toggle-maximize', (event) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'window:toggle-maximize')) return
+  ipcMain.on(IPC_CHANNELS.window.toggleMaximize, (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.window.toggleMaximize)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       if (win.isMaximized()) {
@@ -386,16 +387,16 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('overlay:ready', (event) => {
-    if (rejectUnexpectedSender(event, overlayWindow, 'overlay:ready')) return
+  ipcMain.on(IPC_CHANNELS.overlay.ready, (event) => {
+    if (rejectUnexpectedSender(event, overlayWindow, IPC_CHANNELS.overlay.ready)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win && win.initialOverlayData) {
-      win.webContents.send('overlay:initial-data', win.initialOverlayData)
+      win.webContents.send(IPC_CHANNELS.overlay.initialData, win.initialOverlayData)
     }
   })
 
-  ipcMain.on('overlay:open', (event, value) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'overlay:open')) return
+  ipcMain.on(IPC_CHANNELS.overlay.open, (event, value) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.overlay.open)) return
     let bounds
     let initialState
     try {
@@ -465,7 +466,7 @@ app.whenReady().then(async () => {
 
     overlayWindow.webContents.on('did-finish-load', () => {
       if (initialState) {
-        overlayWindow.webContents.send('overlay:initial-data', initialState)
+        overlayWindow.webContents.send(IPC_CHANNELS.overlay.initialData, initialState)
       }
     })
 
@@ -477,7 +478,7 @@ app.whenReady().then(async () => {
     })
   })
 
-  ipcMain.on('overlay:close', (event) => {
+  ipcMain.on(IPC_CHANNELS.overlay.close, (event) => {
     if (!isSender(event, mainWindow) && !isSender(event, overlayWindow)) {
       console.warn('[Electron] Blocked unauthorized IPC: overlay:close')
       return
@@ -487,8 +488,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('overlay:set-click-through', (event, ignore) => {
-    if (rejectUnexpectedSender(event, overlayWindow, 'overlay:set-click-through')) return
+  ipcMain.on(IPC_CHANNELS.overlay.setClickThrough, (event, ignore) => {
+    if (rejectUnexpectedSender(event, overlayWindow, IPC_CHANNELS.overlay.setClickThrough)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       if (ignore) {
@@ -500,14 +501,14 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('window:minimize', (event) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'window:minimize')) return
+  ipcMain.on(IPC_CHANNELS.window.minimize, (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.window.minimize)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.minimize()
   })
 
-  ipcMain.on('window:close', (event) => {
-    if (rejectUnexpectedSender(event, mainWindow, 'window:close')) return
+  ipcMain.on(IPC_CHANNELS.window.close, (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.window.close)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.close()
   })
