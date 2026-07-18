@@ -121,6 +121,13 @@
   "btn_force": "Enter Anyway",
 
   "sb_btn_stop": "Stop",
+  "sb_title_end_match": "End Current Match",
+  "sb_msg_end_match": "Choose how to finalize the current contestant session.",
+  "sb_btn_save_end": "Save and End",
+  "sb_btn_invalidate": "Invalidate Session",
+  "sb_title_invalidate": "Invalidate Current Session",
+  "sb_msg_invalidate": "This session will be excluded from valid results. Saved raw events will remain available.",
+  "sb_btn_confirm_invalidate": "Confirm Invalidation",
   "sb_lbl_auto": "Auto",
   "chk_auto_next": "Automatically continue to the next contestant",
   "sb_btn_overlay": "Overlay",

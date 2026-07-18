@@ -3,7 +3,7 @@
     <div class="header">
 
       <div class="header-section left">
-        <button class="btn-tool btn-stop" @click="$emit('stop')">
+        <button class="btn-tool btn-stop" @click="showExitDialog = true">
           <ArrowLeft :size="18" />
           <span>{{ $t('sb_btn_stop') }}</span>
         </button>
@@ -211,6 +211,36 @@
       </div>
     </div>
 
+    <div v-if="showExitDialog" class="modal-overlay">
+      <div class="modal-content">
+        <h3>{{ $t('sb_title_end_match') }}</h3>
+        <p>{{ $t('sb_msg_end_match') }}</p>
+        <div class="modal-actions vertical-actions">
+          <button class="btn-confirm large" @click="confirmStopMatch">{{ $t('sb_btn_save_end') }}</button>
+          <button class="btn-invalidate large" @click="openInvalidateDialog">
+            <Ban :size="16" /> {{ $t('sb_btn_invalidate') }}
+          </button>
+          <button class="btn-cancel large" @click="showExitDialog = false">{{ $t('btn_cancel') }}</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showInvalidateDialog" class="modal-overlay">
+      <div class="modal-content">
+        <h3>{{ $t('sb_title_invalidate') }}</h3>
+        <p>{{ $t('sb_msg_invalidate') }}</p>
+        <div class="invalidate-context">
+          <strong>{{ store.currentContext.contestantName }}</strong>
+          <span>{{ store.activeStage?.name }} / {{ $t('attempt_label', { number: store.activeAttemptNumber }) }}</span>
+          <span>{{ store.currentContext.groupName }}</span>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="showInvalidateDialog = false">{{ $t('btn_cancel') }}</button>
+          <button class="btn-confirm warning" @click="confirmInvalidateMatch">{{ $t('sb_btn_confirm_invalidate') }}</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showZeroDialog" class="modal-overlay">
       <div class="modal-content">
         <h3>{{ $t('sb_btn_zero') }}</h3>
@@ -246,12 +276,12 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue' // 引入 watch
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
+import { ArrowLeft, Ban, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
 import { normalizeYouTubeUrl } from '../media/youtube'
 
-const emit = defineEmits(['stop'])
+const emit = defineEmits(['stop', 'invalidate'])
 const store = useRefereeStore()
 const { t } = useI18n()
 
@@ -260,6 +290,8 @@ const isAutoNext = ref(true)
 const showResetDialog = ref(false)
 const showZeroDialog = ref(false)
 const showAllDoneDialog = ref(false)
+const showExitDialog = ref(false)
+const showInvalidateDialog = ref(false)
 const dontAskAgainTemp = ref(false)
 const dontAskZeroTemp = ref(false)
 const showWindowSelector = ref(false)
@@ -463,6 +495,21 @@ const continueLoopMatch = async () => {
 
 const finishMatch = () => { showAllDoneDialog.value = false; emit('stop') }
 
+const confirmStopMatch = () => {
+  showExitDialog.value = false
+  emit('stop')
+}
+
+const openInvalidateDialog = () => {
+  showExitDialog.value = false
+  showInvalidateDialog.value = true
+}
+
+const confirmInvalidateMatch = () => {
+  showInvalidateDialog.value = false
+  emit('invalidate')
+}
+
 const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
   const group = store.activeGroups.find(g => g.name === groupName)
@@ -624,7 +671,7 @@ const confirmOverlay = async () => {
 .bind-video-command { width: 100%; min-height: 36px; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #3d6480; border-radius: 5px; background: #213b4d; color: #d8edfb; cursor: pointer; }
 .score-card { background: #ecf0f1; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); color: #2c3e50; .card-top { width: 100%; display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; font-weight: bold; } .status-indicators { display: flex; gap: 4px; } .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bdc3c7; &.connected { background: #2ecc71; } } .score-main { font-size: 4rem; font-weight: 800; line-height: 1; margin: 10px 0; } .score-detail { font-size: 1rem; color: #666; background: #ddd; padding: 2px 10px; border-radius: 10px; } }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
-.modal-content { background: #2b2b2b; padding: 25px; border-radius: 8px; width: 380px; text-align: center; color: white; h3 { margin-top: 0; } }
+.modal-content { background: #2b2b2b; padding: 25px; border-radius: 8px; width: min(380px, calc(100vw - 48px)); box-sizing: border-box; text-align: center; color: white; h3 { margin-top: 0; } }
 .presentation-dialog { width: min(520px, calc(100vw - 48px)); box-sizing: border-box; }
 .presentation-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
 .presentation-modes button { min-height: 68px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px solid #484b51; border-radius: 6px; background: #222326; color: #b9bdc4; cursor: pointer; }
@@ -640,6 +687,9 @@ const confirmOverlay = async () => {
 .btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
 .btn-confirm:disabled { opacity: 0.45; cursor: default; }
 .btn-confirm.warning { background: #c0392b; &:hover { background: #e74c3c; } }
+.btn-invalidate { display: flex; align-items: center; justify-content: center; gap: 7px; box-sizing: border-box; border: 1px solid #8e4141; border-radius: 4px; background: transparent; color: #ef9b9b; cursor: pointer; }
+.btn-invalidate:hover { background: #4a2424; color: white; }
+.invalidate-context { margin: 16px 0; padding: 12px; border: 1px solid #464646; background: #222; display: flex; flex-direction: column; gap: 4px; text-align: left; strong { color: white; } span { color: #aaa; font-size: 0.82rem; } }
 .btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
 .large { width: 100%; margin-bottom: 10px; padding: 12px; font-size: 1rem; }
 .win-select { width: 100%; padding: 8px; margin: 15px 0; background: #111; color: white; border: 1px solid #444; }

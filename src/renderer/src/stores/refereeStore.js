@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-let stopMatchPromise = null
+let finalizeMatchPromise = null
 let removeMatchRefereeListener = () => {}
 let removeMatchContextListener = () => {}
 let removeMatchStatusListener = () => {}
@@ -328,7 +328,7 @@ export const useRefereeStore = defineStore('referee', {
     // 启动比赛：发送设备绑定信息
     async startMatch(config) {
       try {
-        if (stopMatchPromise) await stopMatchPromise
+        if (finalizeMatchPromise) await finalizeMatchPromise
         // 重置本地状态
         this.referees = {}
         config.referees.forEach((r) => {
@@ -387,14 +387,20 @@ export const useRefereeStore = defineStore('referee', {
       }
     },
 
-    async stopMatch() {
-      if (stopMatchPromise) return stopMatchPromise
+    async finalizeMatch(command) {
+      if (finalizeMatchPromise) return finalizeMatchPromise
+      if (command !== 'stop' && command !== 'invalidate') {
+        throw new Error('MATCH_FINALIZE_COMMAND_INVALID')
+      }
       const pending = (async () => {
         let completed = false
         try {
           let result
           if (window.ftEngine?.match) {
-            result = await window.ftEngine.match.stop()
+            result =
+              command === 'invalidate'
+                ? await window.ftEngine.match.invalidate()
+                : await window.ftEngine.match.stop()
           } else {
             result = {
               ok: true,
@@ -406,10 +412,13 @@ export const useRefereeStore = defineStore('referee', {
           if (!result.ok) console.warn('Some device owners did not stop cleanly', result)
           return result
         } catch (e) {
-          console.error('Stop match failed:', e)
+          console.error(`${command} match failed:`, e)
           return {
             ok: false,
-            worker: { status: 'error', error: 'MATCH_STOP_FAILED' },
+            worker: {
+              status: 'error',
+              error: command === 'invalidate' ? 'MATCH_INVALIDATE_FAILED' : 'MATCH_STOP_FAILED'
+            },
             sessionFinalized: false
           }
         } finally {
@@ -421,10 +430,18 @@ export const useRefereeStore = defineStore('referee', {
           }
         }
       })().finally(() => {
-        if (stopMatchPromise === pending) stopMatchPromise = null
+        if (finalizeMatchPromise === pending) finalizeMatchPromise = null
       })
-      stopMatchPromise = pending
+      finalizeMatchPromise = pending
       return pending
+    },
+
+    async stopMatch() {
+      return this.finalizeMatch('stop')
+    },
+
+    async invalidateMatch() {
+      return this.finalizeMatch('invalidate')
     },
 
     // --- 6. 窗口管理 (Overlay) ---

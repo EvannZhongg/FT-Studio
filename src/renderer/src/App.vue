@@ -23,6 +23,7 @@
       <ScoreBoard
         v-else-if="currentView === 'scoreboard'"
         @stop="handleStopMatch"
+        @invalidate="handleInvalidateMatch"
       />
 
       <ReportView
@@ -111,6 +112,12 @@ const handleStopMatch = async () => {
   const result = await store.stopMatch()
   if (result.sessionFinalized === false) return
   // 停止比赛后返回默认首页
+  returnToHome('default')
+}
+
+const handleInvalidateMatch = async () => {
+  const result = await store.invalidateMatch()
+  if (result.sessionFinalized === false) return
   returnToHome('default')
 }
 

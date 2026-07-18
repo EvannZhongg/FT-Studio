@@ -121,6 +121,13 @@
   "btn_force": "强制进入",
 
   "sb_btn_stop": "结束",
+  "sb_title_end_match": "结束当前比赛",
+  "sb_msg_end_match": "请选择如何处理当前选手的计分会话。",
+  "sb_btn_save_end": "保存并结束",
+  "sb_btn_invalidate": "作废当前会话",
+  "sb_title_invalidate": "确认作废当前会话",
+  "sb_msg_invalidate": "当前会话将标记为作废且不计入有效结果，已保存的原始事件仍会保留。",
+  "sb_btn_confirm_invalidate": "确认作废",
   "sb_lbl_auto": "自动",
   "chk_auto_next": "自动完成并切换到下一位选手",
   "sb_btn_overlay": "悬浮",

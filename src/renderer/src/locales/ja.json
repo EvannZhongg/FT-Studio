@@ -121,6 +121,13 @@
   "btn_force": "そのまま進む",
 
   "sb_btn_stop": "停止",
+  "sb_title_end_match": "現在の試合を終了",
+  "sb_msg_end_match": "現在の選手セッションの処理方法を選択してください。",
+  "sb_btn_save_end": "保存して終了",
+  "sb_btn_invalidate": "セッションを無効化",
+  "sb_title_invalidate": "現在のセッションを無効化",
+  "sb_msg_invalidate": "このセッションは有効な結果から除外されます。保存済みの生イベントは保持されます。",
+  "sb_btn_confirm_invalidate": "無効化を確定",
   "sb_lbl_auto": "自動",
   "chk_auto_next": "完了後に次の選手へ自動で切り替える",
   "sb_btn_overlay": "オーバーレイ",

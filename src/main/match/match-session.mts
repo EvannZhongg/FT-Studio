@@ -10,7 +10,11 @@ import type {
   MatchScoreEventWrite,
   MatchScoreEventWriteResult
 } from '../persistence/local-database.mts'
-import { normalizeYouTubeUrl, type YouTubeMediaBinding } from '../../shared/media/youtube.mts'
+import type { YouTubeMediaBinding } from '../../shared/media/youtube.mts'
+import { MatchMediaSession, type MatchMediaStatus } from './media-session.mts'
+import { MatchSessionError } from './match-session-error.mts'
+
+export { MatchSessionError } from './match-session-error.mts'
 
 export interface MatchRefereeBinding {
   index: number
@@ -43,7 +47,7 @@ export interface MatchStatusUpdate {
   state: MatchSessionState
   persistence: 'idle' | 'saving' | 'saved' | 'error'
   worker: 'idle' | 'ready' | 'reconnecting' | 'error'
-  media: 'not_ready' | 'aligned' | 'stale' | 'context_mismatch'
+  media: MatchMediaStatus
   errorCode: string | null
   lastSavedAt: string | null
 }
@@ -108,34 +112,9 @@ interface MatchPersistenceContext {
   attemptNumber: number
 }
 
-interface PlaybackAnchor {
-  groupName: string
-  contestantName: string
-  videoId: string
-  videoTimeMs: number
-  state: 'playing' | 'paused' | 'buffering' | 'cued' | 'ended'
-  playbackRate: number
-  receivedAtMs: number
-}
-
-interface MediaCapture {
-  provider: string
-  mediaId: string
-  mediaTimeMs: number | null
-  status: MatchStatusUpdate['media']
-}
-
-export class MatchSessionError extends Error {
-  readonly code: string
-
-  constructor(code: string, message: string) {
-    super(message)
-    this.code = code
-  }
-}
-
 export class MatchSessionService {
   private readonly dependencies: MatchSessionDependencies
+  private readonly mediaSession: MatchMediaSession
   private readonly referees = new Map<number, RefereeRuntime>()
   private readonly connections = new Map<string, ConnectionRuntime>()
   private state: MatchSessionState = 'idle'
@@ -149,12 +128,15 @@ export class MatchSessionService {
   private groupName = ''
   private contestantName = ''
   private attemptNumber = 1
-  private playbackAnchor: PlaybackAnchor | null = null
   private operationVersion = 0
   private controlOperationPending = false
 
   constructor(dependencies: MatchSessionDependencies) {
     this.dependencies = dependencies
+    this.mediaSession = new MatchMediaSession({
+      upsertMediaBinding: dependencies.upsertMediaBinding,
+      monotonicNow: dependencies.monotonicNow
+    })
   }
 
   getStatus(): MatchStatusUpdate {
@@ -194,6 +176,7 @@ export class MatchSessionService {
     this.persistence = 'idle'
     this.worker = 'reconnecting'
     this.media = 'not_ready'
+    this.mediaSession.reset()
     this.errorCode = null
     this.lastSavedAt = null
     this.publishStatus()
@@ -250,7 +233,7 @@ export class MatchSessionService {
     if (this.state !== 'stopping') return
     this.connections.clear()
     this.referees.clear()
-    this.playbackAnchor = null
+    this.mediaSession.reset()
     this.controlOperationPending = false
     this.worker = 'idle'
     this.media = 'not_ready'
@@ -352,7 +335,7 @@ export class MatchSessionService {
         runtime.scoring = resetRefereeScoringState(runtime.scoring)
         this.emitReferee(runtime)
       }
-      this.media = this.captureMedia().status
+      this.media = this.mediaSession.capture(this.currentMediaContext()).status
       this.emitContext({ groupName, contestantName })
       this.publishStatus()
     } finally {
@@ -397,68 +380,18 @@ export class MatchSessionService {
 
   updatePlayback(value: Record<string, unknown>): void {
     this.requireActive()
-    const groupName = stringValue(value.group)
-    const contestantName = stringValue(value.contestant)
-    const videoId = stringValue(value.video_id)
-    const state = stringValue(value.state)
-    const videoTimeMs = Number(value.video_time_ms)
-    const playbackRate = Number(value.playback_rate ?? 1)
-    if (
-      !groupName ||
-      !contestantName ||
-      !/^[A-Za-z0-9_-]{11}$/.test(videoId) ||
-      !['playing', 'paused', 'buffering', 'cued', 'ended'].includes(state) ||
-      !Number.isFinite(videoTimeMs) ||
-      videoTimeMs < 0 ||
-      !Number.isFinite(playbackRate) ||
-      playbackRate <= 0 ||
-      playbackRate > 4
-    ) {
-      throw new MatchSessionError('MATCH_PLAYBACK_INVALID', 'Playback anchor is invalid')
-    }
-    this.playbackAnchor = {
-      groupName,
-      contestantName,
-      videoId,
-      videoTimeMs: Math.round(videoTimeMs),
-      state: state as PlaybackAnchor['state'],
-      playbackRate,
-      receivedAtMs: this.monotonicNow()
-    }
-    this.media = this.captureMedia().status
+    this.media = this.mediaSession.updatePlayback(value, this.currentMediaContext())
     this.publishStatus()
   }
 
   setMediaBinding(groupName: string, contestantName: string, url: string): YouTubeMediaBinding {
     this.requireActive()
-    if (!groupName || !contestantName) {
-      throw new MatchSessionError('MATCH_MEDIA_INVALID', 'Media binding is invalid')
-    }
-    let binding: YouTubeMediaBinding
-    try {
-      binding = normalizeYouTubeUrl(url)
-    } catch (error) {
-      throw new MatchSessionError(
-        stableErrorCode(error, 'MATCH_MEDIA_INVALID'),
-        'Media binding is invalid'
-      )
-    }
-    const saved =
-      this.dependencies.upsertMediaBinding?.(
-        this.sourceKey,
-        this.stageId,
-        groupName,
-        contestantName,
-        {
-          provider: binding.provider,
-          mediaId: binding.video_id,
-          canonicalUrl: binding.canonical_url
-        }
-      ) ?? false
-    if (!saved) {
-      throw new MatchSessionError('MATCH_MEDIA_CONTEXT_NOT_FOUND', 'Media context was not found')
-    }
-    return binding
+    return this.mediaSession.setMediaBinding(
+      this.currentMediaContext(),
+      groupName,
+      contestantName,
+      url
+    )
   }
 
   handleWorkerEvent(message: unknown): void {
@@ -517,7 +450,7 @@ export class MatchSessionService {
     message: Record<string, unknown> & { payload: Record<string, unknown> }
   ): void {
     const timestamp = this.now().toISOString()
-    const media = this.captureMedia()
+    const media = this.mediaSession.capture(this.currentMediaContext())
     this.persistence = 'saving'
     this.media = media.status
     this.errorCode = null
@@ -580,7 +513,6 @@ export class MatchSessionService {
     this.groupName = input.groupName
     this.contestantName = input.contestantName
     this.attemptNumber = input.attemptNumber
-    this.playbackAnchor = null
     for (const binding of input.referees) {
       const runtime: RefereeRuntime = {
         index: binding.index,
@@ -609,6 +541,10 @@ export class MatchSessionService {
       contestantName: this.contestantName,
       attemptNumber: this.attemptNumber
     }
+  }
+
+  private currentMediaContext(): MatchPersistenceContext {
+    return this.currentPersistenceContext()
   }
 
   private buildConnectionRequests(
@@ -711,30 +647,6 @@ export class MatchSessionService {
     }
   }
 
-  private captureMedia(): MediaCapture {
-    const anchor = this.playbackAnchor
-    if (!anchor) return { provider: '', mediaId: '', mediaTimeMs: null, status: 'not_ready' }
-    if (anchor.groupName !== this.groupName || anchor.contestantName !== this.contestantName) {
-      return {
-        provider: 'youtube',
-        mediaId: anchor.videoId,
-        mediaTimeMs: null,
-        status: 'context_mismatch'
-      }
-    }
-    const ageMs = Math.max(0, this.monotonicNow() - anchor.receivedAtMs)
-    if (ageMs > 500) {
-      return { provider: 'youtube', mediaId: anchor.videoId, mediaTimeMs: null, status: 'stale' }
-    }
-    const advanced = anchor.state === 'playing' ? ageMs * anchor.playbackRate : 0
-    return {
-      provider: 'youtube',
-      mediaId: anchor.videoId,
-      mediaTimeMs: Math.max(0, Math.round(anchor.videoTimeMs + advanced)),
-      status: 'aligned'
-    }
-  }
-
   private requireActive(): void {
     if (this.state !== 'active') {
       throw new MatchSessionError('MATCH_NOT_ACTIVE', 'Match is not active')
@@ -757,10 +669,6 @@ export class MatchSessionService {
 
   private now(): Date {
     return (this.dependencies.now ?? (() => new Date()))()
-  }
-
-  private monotonicNow(): number {
-    return (this.dependencies.monotonicNow ?? (() => performance.now()))()
   }
 }
 
