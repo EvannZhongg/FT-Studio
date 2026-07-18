@@ -195,7 +195,6 @@ const handleRecordShortcut = (e) => {
 // 挂载全局监听器
 onMounted(async () => {
   window.addEventListener('mousedown', handleClickOutside)
-  await store.initConfig()
   await store.fetchSettings()
 })
 

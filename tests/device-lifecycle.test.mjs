@@ -3,8 +3,7 @@ import test from 'node:test'
 
 import { DeviceLifecycle } from '../src/main/match/device-lifecycle.mjs'
 
-
-test('disconnects the worker without calling a legacy device owner', async () => {
+test('disconnects the platform worker', async () => {
   const calls = []
   const lifecycle = new DeviceLifecycle({
     disconnectWorker: async () => calls.push('worker')
@@ -15,21 +14,21 @@ test('disconnects the worker without calling a legacy device owner', async () =>
   assert.deepEqual(calls, ['worker'])
   assert.deepEqual(result, {
     ok: true,
-    worker: { status: 'ok' },
-    legacy: { status: 'skipped' }
+    worker: { status: 'ok' }
   })
 })
 
 test('coalesces concurrent stop requests', async () => {
   let releases
   let workerCalls = 0
-  const blocked = new Promise((resolve) => { releases = resolve })
+  const blocked = new Promise((resolve) => {
+    releases = resolve
+  })
   const lifecycle = new DeviceLifecycle({
     disconnectWorker: async () => {
       workerCalls += 1
       await blocked
-    },
-    disconnectLegacy: async () => {}
+    }
   })
 
   const first = lifecycle.stop('renderer')
@@ -51,7 +50,6 @@ test('reports a worker shutdown failure', async () => {
 
   assert.deepEqual(await lifecycle.stop(), {
     ok: false,
-    worker: { status: 'error', error: 'WORKER_TIMEOUT' },
-    legacy: { status: 'skipped' }
+    worker: { status: 'error', error: 'WORKER_TIMEOUT' }
   })
 })

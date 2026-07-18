@@ -45,7 +45,7 @@ const group = {
   ]
 }
 
-test('creates and updates a competition without a legacy project directory', () => {
+test('creates and updates a SQLite competition', () => {
   const { database, competitions } = createFixture()
   try {
     const created = competitions.create('Local Event', 'FREE')
@@ -79,8 +79,8 @@ test('scores a local competition and locks structure while allowing device rebin
         method === 'device.connectMany'
           ? { connections: params.connections.map((value) => ({ ...value, status: 'connected' })) }
           : { connections: [] },
-      persistEvent: (input) => database.appendLegacyScoreEvent(input),
-      upsertMediaBinding: (...args) => database.upsertLegacyMediaBinding(...args),
+      persistEvent: (input) => database.appendMatchScoreEvent(input),
+      upsertMediaBinding: (...args) => database.upsertMediaBinding(...args),
       emitRefereeUpdate: () => {},
       now: () => new Date('2026-07-18T14:00:00.000Z')
     })
@@ -110,14 +110,14 @@ test('scores a local competition and locks structure while allowing device rebin
       }
     })
 
-    assert.deepEqual(database.getLegacyReport(created.source_key)?.scores.Final.Alice[1], {
+    assert.deepEqual(database.getReport(created.source_key)?.scores.Final.Alice[1], {
       total: 3,
       plus: 4,
       minus: 1,
       penalty: 0
     })
     assert.equal(
-      database.getLegacyReplay(created.source_key, 'Final', 'Alice')?.events[0].event_id,
+      database.getReplay(created.source_key, 'Final', 'Alice')?.events[0].event_id,
       'local-event-1'
     )
     assert.throws(

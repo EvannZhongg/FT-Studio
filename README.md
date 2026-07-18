@@ -6,15 +6,15 @@ FT Engine is an Electron desktop scoring application for competitive events. It 
 
 ## Current Architecture
 
-Route B is being introduced incrementally. The current application is a working dual-runtime transition:
+Route B is being introduced incrementally. The application now has one local runtime path:
 
 - Window, overlay, device, live-match, and primary historical reads use constrained IPC.
 - Electron Main's `MatchSessionService` connects the Platform Worker, TypeScript scoring domain, and atomic live SQLite event writes while publishing continuous save/worker/media status to the scoring UI.
-- `CompetitionService` moves project creation, configuration, resume, list, and deletion into Main/SQLite; new projects no longer create legacy directories.
-- The working tree's `ExportService` builds report CSV and detail ZIP/CSV/SRT from a read-only SQLite snapshot, then writes through Electron's native save dialog.
-- The legacy FastAPI backend now serves only a few Renderer fallbacks and otherwise dormant routes. Multi-stage workflows remain unfinished; the next refactor deletes the legacy runtime/importer without migrating old data.
+- `CompetitionService` keeps project creation, configuration, resume, list, and deletion entirely in Main/SQLite.
+- `ExportService` builds report CSV and detail ZIP/CSV/SRT from a read-only SQLite snapshot, then writes through Electron's native save dialog.
+- FastAPI, Axios fallbacks, the old-project importer, shadow events, and backend-engine have been removed. Retired databases are backed up and rebuilt without importing old projects or CSV files.
 
-See [current architecture](docs/ARCHITECTURE_CURRENT_zh.md) and the [remaining Route B plan](docs/REFACTOR_PLAN_ROUTE_B_zh.md). Do not assume the localhost backend has already been removed.
+See [current architecture](docs/ARCHITECTURE_CURRENT_zh.md) and the [remaining Route B plan](docs/REFACTOR_PLAN_ROUTE_B_zh.md).
 
 ## Features
 
@@ -41,7 +41,7 @@ python -m pip install -r requirements.txt
 npm run dev
 ~~~
 
-Electron currently starts the legacy backend, Platform Worker, and SQLite together. The development Renderer normally uses `http://localhost:5173`; the legacy backend defaults to `127.0.0.1:8000`.
+Electron starts the Platform Worker and SQLite. Vite serves the development Renderer; the application itself does not start an HTTP or WebSocket service.
 
 ## Verification
 
@@ -53,30 +53,28 @@ npm run build
 python -m unittest discover -s tests
 ~~~
 
-The current suites contain both the primary implementation and legacy boundaries scheduled for deletion. After legacy removal, only Main/Renderer and Platform Worker coverage remains.
+Node tests cover the local workflow, export formats, SQLite, IPC/Worker, security boundaries, and media replay. Python tests cover only the Platform Worker protocol, device service, and platform adapters.
 
 ## Packaging
 
 ~~~bash
-npm run build:backend
+npm run build:worker
 npm run build:unpack
 npm run build:win
 npm run build:mac
 ~~~
 
-Transition builds still package two Python executables. The target removes `backend-engine` and keeps only the JSONL stdio `local-platform-worker`.
+Packages contain only the JSONL stdio `local-platform-worker` Python executable.
 
 ## Local Data
 
-Development data is written under the repository; packaged builds use Electron's user-data directory.
+Development and packaged builds both use Electron's user-data directory.
 
 | Data | Purpose |
 | --- | --- |
-| `config.yaml` | Current backend port configuration; to be reduced after backend removal |
-| `app_settings.json` | Legacy settings file scheduled for deletion |
-| `match_data/` | Legacy project directory scheduled for deletion without migration |
-| `ft-engine.db` | Authoritative projects, events, settings, and media; a clean schema reset is allowed |
-| `backups/` | Pre-migration SQLite backups |
+| `ft-engine.db` | Sole authoritative store for projects, events, settings, and media |
+| `backups/` | Read-only backup created before an incompatible schema reset |
+| `exports/` | User-requested derived files |
 | `logs/` | Startup and runtime logs |
 
 Typical packaged locations are `%APPDATA%/FT Engine/` on Windows and `~/Library/Application Support/FT Engine/` on macOS.
@@ -86,15 +84,12 @@ Typical packaged locations are `%APPDATA%/FT Engine/` on Windows and `~/Library/
 ~~~text
 src/main/application/            Competition, export, match, and settings services
 src/main/domain/                 TypeScript scoring domain
-src/main/persistence/            SQLite repositories; importer pending deletion
+src/main/persistence/            SQLite repository and query projections
 src/main/worker/                 WorkerClient
-src/main/legacy/                 Shadow event pending deletion
 src/preload/                     Narrow main/overlay APIs
 src/shared/                      IPC and domain DTO contracts
 src/renderer/                    Vue UI
 workers/local_platform_worker/   BLE, USB, and window worker
-server.py                        FastAPI backend pending deletion
-utils/                           Legacy modules pending deletion with FastAPI
 tests/                           Node and Python regression tests
 ~~~
 

@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import axios from 'axios'
 
 let stopMatchPromise = null
 let removeMatchRefereeListener = () => {}
@@ -18,8 +17,6 @@ const initialMatchStatus = () => ({
 
 export const useRefereeStore = defineStore('referee', {
   state: () => ({
-    // --- 动态配置 ---
-    apiBase: 'http://127.0.0.1:8000',
     referees: {},
     matchActive: false,
     matchStatus: initialMatchStatus(),
@@ -38,24 +35,6 @@ export const useRefereeStore = defineStore('referee', {
   }),
 
   actions: {
-    // --- 初始化配置 (从 Electron 获取端口) ---
-    async initConfig() {
-      // 检查是否在 Electron 环境下
-      if (window.ftEngine?.app) {
-        try {
-          // 调用主进程接口获取 config.yaml 中的端口
-          const config = await window.ftEngine.app.getServerConfig()
-          const port = config.port
-
-          // 更新 API 地址
-          this.apiBase = `http://127.0.0.1:${port}`
-          console.log(`[Store] Configured API to port ${port}`)
-        } catch (e) {
-          console.error('Failed to load server config', e)
-        }
-      }
-    },
-
     updateScore(payload) {
       const { index, name, mode, score, status } = payload
       if (!this.referees[index]) {
@@ -137,16 +116,13 @@ export const useRefereeStore = defineStore('referee', {
 
     async renameDevices(devices) {
       try {
-        if (window.ftEngine?.devices) {
-          return await window.ftEngine.devices.rename(
-            devices.map((device) => ({
-              deviceId: device.address,
-              name: device.name
-            }))
-          )
-        }
-        const res = await axios.post(`${this.apiBase}/api/devices/rename`, { devices })
-        return res.data.results || []
+        if (!window.ftEngine?.devices) throw new Error('LOCAL_DEVICES_UNAVAILABLE')
+        return await window.ftEngine.devices.rename(
+          devices.map((device) => ({
+            deviceId: device.address,
+            name: device.name
+          }))
+        )
       } catch (e) {
         console.error('Rename devices failed:', e)
         throw e
@@ -298,8 +274,7 @@ export const useRefereeStore = defineStore('referee', {
           } else {
             result = {
               ok: true,
-              worker: { status: 'skipped' },
-              legacy: { status: 'skipped' }
+              worker: { status: 'skipped' }
             }
           }
           if (!result.ok) console.warn('Some device owners did not stop cleanly', result)
@@ -308,8 +283,7 @@ export const useRefereeStore = defineStore('referee', {
           console.error('Stop match failed:', e)
           return {
             ok: false,
-            worker: { status: 'error', error: 'MATCH_STOP_FAILED' },
-            legacy: { status: 'error', error: 'MATCH_STOP_FAILED' }
+            worker: { status: 'error', error: 'MATCH_STOP_FAILED' }
           }
         } finally {
           this.matchActive = false
@@ -374,17 +348,9 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     async fetchReportData(dirName) {
-      if (window.ftEngine?.reports) {
-        try {
-          const report = await window.ftEngine.reports.getLegacy(dirName)
-          if (report) return report
-        } catch (e) {
-          console.warn('SQLite report unavailable, using legacy backend', e)
-        }
-      }
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/report`, { dir_name: dirName })
-        return res.data
+        if (!window.ftEngine?.reports) throw new Error('LOCAL_REPORTS_UNAVAILABLE')
+        return await window.ftEngine.reports.get(dirName)
       } catch (e) {
         console.error('Fetch report failed', e)
         return null
@@ -438,21 +404,9 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     async fetchReplayData(dirName, groupName, contestantName) {
-      if (window.ftEngine?.replay) {
-        try {
-          const replay = await window.ftEngine.replay.getLegacy(dirName, groupName, contestantName)
-          if (replay) return replay
-        } catch (e) {
-          console.warn('SQLite replay unavailable, using legacy backend', e)
-        }
-      }
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/replay`, {
-          dir_name: dirName,
-          group: groupName,
-          contestant: contestantName
-        })
-        return res.data
+        if (!window.ftEngine?.replay) throw new Error('LOCAL_REPLAY_UNAVAILABLE')
+        return await window.ftEngine.replay.get(dirName, groupName, contestantName)
       } catch (e) {
         console.error('Fetch replay failed', e)
         return null
@@ -464,18 +418,14 @@ export const useRefereeStore = defineStore('referee', {
     async fetchScoredPlayers(groupName) {
       if (!groupName) return
       try {
-        if (window.ftEngine?.match && this.projectConfig.source_key) {
-          const scored = await window.ftEngine.match.listScored(
-            this.projectConfig.source_key,
-            groupName
-          )
-          this.scoredPlayers = new Set(scored)
-          return
+        if (!window.ftEngine?.match || !this.projectConfig.source_key) {
+          throw new Error('LOCAL_MATCH_UNAVAILABLE')
         }
-        const res = await axios.post(`${this.apiBase}/api/group/status`, { group: groupName })
-        if (res.data.scored) {
-          this.scoredPlayers = new Set(res.data.scored)
-        }
+        const scored = await window.ftEngine.match.listScored(
+          this.projectConfig.source_key,
+          groupName
+        )
+        this.scoredPlayers = new Set(scored)
       } catch (e) {
         console.error('Fetch status failed', e)
       }

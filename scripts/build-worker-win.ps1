@@ -3,10 +3,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
-Write-Host "Starting Windows backend build..."
-
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
-
 if (Test-Path $venvPython) {
   $pythonCmd = $venvPython
   $pythonBaseArgs = @()
@@ -23,15 +20,10 @@ if (Test-Path $venvPython) {
 & $pythonCmd @pythonBaseArgs -m pip install --upgrade pip
 & $pythonCmd @pythonBaseArgs -m pip install -r requirements.txt
 
-if (Test-Path ".\backend-engine.exe") {
-  Remove-Item ".\backend-engine.exe" -Force
-}
-
 if (Test-Path ".\local-platform-worker.exe") {
   Remove-Item ".\local-platform-worker.exe" -Force
 }
 
-& $pythonCmd @pythonBaseArgs -m PyInstaller --onefile --name backend-engine --distpath . server.py
 & $pythonCmd @pythonBaseArgs -m PyInstaller --onefile --name local-platform-worker --distpath . workers\local_platform_worker\worker_entry.py
 
-Write-Host "Windows backend and local platform worker build complete."
+Write-Host "Windows local platform worker build complete."

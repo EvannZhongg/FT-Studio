@@ -14,7 +14,6 @@
     "src/shared/**/*.ts",
     "src/main/application/**/*.mts",
     "src/main/domain/**/*.mts",
-    "src/main/legacy/**/*.mts",
     "src/main/match/**/*.mts",
     "src/main/persistence/**/*.mts",
     "src/preload/**/*.ts",

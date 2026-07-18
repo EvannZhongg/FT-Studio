@@ -3,17 +3,8 @@ import { basename, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
-import yaml from 'js-yaml'
 import fs from 'fs'
-import {
-  getBackendEnv,
-  getBackendLaunchConfig,
-  getConfigPath,
-  getDataRoot,
-  getPlatformWorkerLaunchConfig,
-  isMac,
-  isWindows
-} from './platform'
+import { getDataRoot, getPlatformWorkerEnv, getPlatformWorkerLaunchConfig, isMac } from './platform'
 import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
@@ -22,17 +13,7 @@ import { MatchSessionService } from './match/match-session.mts'
 import { CompetitionService } from './application/competitions/competition-service.mts'
 import { ExportService, ExportServiceError } from './application/exports/export-service.mts'
 import { LocalDatabase } from './persistence/local-database.mts'
-import {
-  deleteLegacyProjectSource,
-  importLegacyProject,
-  importLegacyProjects
-} from './persistence/legacy-importer.mts'
-import { parseLegacyShadowEventLine } from './legacy/shadow-event.mts'
 
-const { spawn, execSync } = require('child_process')
-const net = require('net')
-
-let pyProc = null
 let platformWorker = null
 let localDatabase = null
 let platformWorkerRestartTimer = null
@@ -47,7 +28,6 @@ const MAX_PLATFORM_WORKER_RESTARTS = 3
 
 let startupLogStream = null
 let startupT0 = 0
-let backendStdoutBuffer = ''
 
 function closeStartupLog() {
   if (!startupLogStream) return
@@ -88,39 +68,13 @@ function logToFile(message) {
   }
 }
 
-function getAppConfig() {
-  let port = 8000
-
-  try {
-    const configPath = getConfigPath(app)
-    console.log('[Electron] Config Path:', configPath)
-
-    if (fs.existsSync(configPath)) {
-      const fileContents = fs.readFileSync(configPath, 'utf8')
-      const config = yaml.load(fileContents)
-      if (config && config.server_port) {
-        port = config.server_port
-        console.log(`[Electron] Loaded port from config: ${port}`)
-      }
-    } else {
-      console.log('[Electron] Config file not found, using default port 8000')
-    }
-  } catch (error) {
-    console.error('[Electron] Failed to load config:', error)
-  }
-
-  return { port }
-}
-
-const appConfig = getAppConfig()
-
 const deviceLifecycle = new DeviceLifecycle({
   disconnectWorker: async () => {
     if (!platformWorker) return { skipped: true }
     await platformWorker.request('device.disconnectAll', {}, 5000)
   },
   onStopped: (reason, result) => {
-    const message = `Device shutdown (${reason}): worker=${result.worker.status}, legacy=${result.legacy.status}`
+    const message = `Device shutdown (${reason}): worker=${result.worker.status}`
     console.log('[Electron]', message)
     logToFile(message)
   }
@@ -139,11 +93,15 @@ const matchSession = new MatchSessionService({
   },
   persistEvent: (input) => {
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.appendLegacyScoreEvent(input)
+    return localDatabase.appendMatchScoreEvent(input)
+  },
+  validateContext: (...args) => {
+    if (!localDatabase) return false
+    return localDatabase.hasMatchContext(...args)
   },
   upsertMediaBinding: (...args) => {
     if (!localDatabase) return false
-    return localDatabase.upsertLegacyMediaBinding(...args)
+    return localDatabase.upsertMediaBinding(...args)
   },
   emitRefereeUpdate: (update) => sendMatchEvent(IPC_CHANNELS.match.refereeUpdated, update),
   emitContextUpdate: (context) => sendMatchEvent(IPC_CHANNELS.match.contextUpdated, context),
@@ -173,9 +131,6 @@ const competitionService = new CompetitionService({
   },
   delete: (sourceKey) => {
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    if (localDatabase.isLegacyCompetition(sourceKey)) {
-      deleteLegacyProjectSource(getLegacyProjectRoot(), sourceKey)
-    }
     return localDatabase.deleteCompetition(sourceKey)
   }
 })
@@ -199,143 +154,13 @@ async function stopDeviceSessions(reason) {
   return result
 }
 
-const createPyProc = () => {
-  const { cmd, args } = getBackendLaunchConfig(__dirname, is.dev)
-  console.log(`[Electron] Starting Python backend (${is.dev ? 'Dev' : 'Prod'}):`, cmd, args)
-  pyProc = spawn(cmd, args, { env: getBackendEnv(app) })
-
-  if (pyProc != null) {
-    backendStdoutBuffer = ''
-    console.log('[Electron] Python process started, PID:', pyProc.pid)
-    logToFile('Backend process spawned, PID: ' + pyProc.pid)
-    pyProc.stdout.on('data', function (data) {
-      processBackendStdout(data.toString())
-    })
-    pyProc.stderr.on('data', function (data) {
-      const line = data.toString()
-      console.log('py_stderr: ' + line)
-      const trimmed = line.trim()
-      if (trimmed) {
-        logToFile('[backend stderr] ' + trimmed.replace(/\n/g, ' | '))
-      }
-    })
-  }
-}
-
-function waitForBackend(port, maxMs = 15000) {
-  return new Promise((resolve) => {
-    const startedAt = Date.now()
-
-    const tryConnect = () => {
-      const socket = net.connect(port, '127.0.0.1', () => {
-        socket.destroy()
-        resolve(true)
-      })
-
-      socket.once('error', () => {
-        if (Date.now() - startedAt >= maxMs) {
-          resolve(false)
-          return
-        }
-        setTimeout(tryConnect, 300)
-      })
-    }
-
-    tryConnect()
-  })
-}
-
-const exitPyProc = () => {
-  if (pyProc != null) {
-    console.log('[Electron] Killing Python process...')
-
-    if (isWindows) {
-      try {
-        execSync(`taskkill /pid ${pyProc.pid} /f /t`)
-        console.log('[Electron] Taskkill executed successfully')
-      } catch (error) {
-        console.error(
-          '[Electron] Failed to taskkill (process might be already dead):',
-          error.message
-        )
-      }
-    } else {
-      pyProc.kill()
-    }
-
-    pyProc = null
-  }
-}
-
-function processBackendStdout(chunk) {
-  backendStdoutBuffer += chunk
-  if (Buffer.byteLength(backendStdoutBuffer, 'utf8') > 1024 * 1024) {
-    backendStdoutBuffer = ''
-    console.error('[Electron] Discarded oversized backend stdout line')
-    return
-  }
-  let newlineIndex = backendStdoutBuffer.indexOf('\n')
-  while (newlineIndex >= 0) {
-    const line = backendStdoutBuffer.slice(0, newlineIndex).replace(/\r$/, '')
-    backendStdoutBuffer = backendStdoutBuffer.slice(newlineIndex + 1)
-    try {
-      const event = parseLegacyShadowEventLine(line)
-      if (event) {
-        if (localDatabase) localDatabase.appendScoreEvent(event)
-      } else if (line.trim()) {
-        console.log('py_stdout: ' + line)
-        logToFile('[backend] ' + line.trim())
-      }
-    } catch (error) {
-      console.error('[Electron] Failed to shadow-write legacy score event:', error.message)
-    }
-    newlineIndex = backendStdoutBuffer.indexOf('\n')
-  }
-}
-
 function openLocalDatabase() {
   const dataRoot = getDataRoot(app)
   const database = new LocalDatabase(join(dataRoot, 'ft-engine.db'), join(dataRoot, 'backups'))
   database.open()
   localDatabase = database
-  let imported
-  try {
-    imported = importLegacyProjects(database, join(dataRoot, 'match_data'))
-  } catch (error) {
-    closeLocalDatabase()
-    throw error
-  }
   console.log('[Electron] Local database ready:', database.databasePath)
-  console.log(
-    `[Electron] Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
-      `events=${imported.events}, errors=${imported.errors.length}`
-  )
   logToFile(`Local database ready: ${database.databasePath}`)
-  logToFile(
-    `Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
-      `events=${imported.events}, errors=${imported.errors.length}`
-  )
-}
-
-function getLegacyProjectRoot() {
-  return join(getDataRoot(app), 'match_data')
-}
-
-function refreshLegacyProject(sourceKey) {
-  try {
-    if (!localDatabase) return false
-    const existing = localDatabase.getCompetitionConfig(sourceKey)
-    if (existing && !localDatabase.isLegacyCompetition(sourceKey)) return true
-    const result = importLegacyProject(localDatabase, getLegacyProjectRoot(), sourceKey)
-    if (result.imported) {
-      logToFile(`Legacy project refreshed: source=${sourceKey}, events=${result.events}`)
-    }
-    return true
-  } catch (error) {
-    console.error(`[Electron] Failed to refresh legacy project ${sourceKey}:`, error.message)
-    logToFile(`Legacy project refresh failed: source=${sourceKey}, error=${error.message}`)
-    return false
-  }
 }
 
 function closeLocalDatabase() {
@@ -347,13 +172,11 @@ function closeLocalDatabase() {
 function getLocalDataTargets() {
   const dataRoot = getDataRoot(app)
   return [
-    join(dataRoot, 'app_settings.json'),
     join(dataRoot, 'ft-engine.db'),
     join(dataRoot, 'ft-engine.db-shm'),
     join(dataRoot, 'ft-engine.db-wal'),
     join(dataRoot, 'backups'),
     join(dataRoot, 'exports'),
-    join(dataRoot, 'match_data'),
     join(dataRoot, 'logs')
   ]
 }
@@ -362,7 +185,6 @@ async function deleteLocalDataFiles() {
   await stopDeviceSessions('delete-local-data')
   await exitPlatformWorker()
   closeLocalDatabase()
-  exitPyProc()
   closeStartupLog()
 
   const deleted = []
@@ -387,7 +209,7 @@ async function createPlatformWorker() {
     command: cmd,
     args,
     cwd: process.cwd(),
-    env: getBackendEnv(app),
+    env: getPlatformWorkerEnv(app),
     requestTimeoutMs: 3000
   })
   platformWorker = worker
@@ -574,7 +396,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   if (app.isPackaged) {
     initStartupLog()
-    logToFile('whenReady done, starting backend...')
+    logToFile('whenReady done')
   }
 
   electronApp.setAppUserModelId('com.freakthrow.FT Engine')
@@ -583,37 +405,19 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  createPyProc()
   try {
     openLocalDatabase()
   } catch (error) {
-    console.error(
-      '[Electron] Shadow database unavailable, legacy storage remains active:',
-      error.message
-    )
-    logToFile(`Shadow database unavailable: ${error.message}`)
+    console.error('[Electron] Local database unavailable:', error.message)
+    logToFile(`Local database unavailable: ${error.message}`)
   }
   platformWorkerStopping = false
   try {
     await createPlatformWorker()
   } catch (error) {
-    console.error(
-      '[Electron] Platform Worker unavailable, legacy backend remains active:',
-      error.message
-    )
+    console.error('[Electron] Platform Worker unavailable:', error.message)
     logToFile(`Platform Worker unavailable: ${error.message}`)
     schedulePlatformWorkerRestart()
-  }
-
-  if (!is.dev) {
-    logToFile(`Waiting for backend on port ${appConfig.port}...`)
-    const ready = await waitForBackend(appConfig.port)
-    if (ready) {
-      logToFile(`Backend ready on port ${appConfig.port}`)
-    } else {
-      console.warn('[Electron] Backend did not become ready in time, opening window anyway.')
-      logToFile(`Backend not ready on port ${appConfig.port}, opening window anyway`)
-    }
   }
 
   logToFile('Creating main window...')
@@ -633,7 +437,6 @@ app.whenReady().then(async () => {
     await stopDeviceSessions('restart-for-update')
     await exitPlatformWorker()
     closeLocalDatabase()
-    exitPyProc()
     autoUpdater.quitAndInstall()
   })
 
@@ -768,22 +571,9 @@ app.whenReady().then(async () => {
     assertMainSender(event)
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
     const sourceKey = input?.sourceKey
-    let config = typeof sourceKey === 'string' ? competitionService.get(sourceKey) : null
-    if (!config) {
-      const imported = importLegacyProject(localDatabase, getLegacyProjectRoot(), sourceKey)
-      if (!imported.found) throw new Error('MATCH_PROJECT_NOT_FOUND')
-      config = competitionService.get(sourceKey)
-    }
+    const config = typeof sourceKey === 'string' ? competitionService.get(sourceKey) : null
     if (!config) throw new Error('MATCH_PROJECT_NOT_FOUND')
-    const result = await matchSession.start(input)
-    if (
-      localDatabase.isLegacyCompetition(sourceKey) &&
-      !localDatabase.markLegacyProjectLive(sourceKey)
-    ) {
-      await stopDeviceSessions('match-start-rollback')
-      throw new Error('MATCH_PROJECT_NOT_FOUND')
-    }
-    return result
+    return matchSession.start(input)
   })
 
   ipcMain.handle(IPC_CHANNELS.match.setContext, async (event, groupName, contestantName) => {
@@ -822,7 +612,7 @@ app.whenReady().then(async () => {
       throw new Error('IPC_INVALID_MATCH_CONTEXT')
     }
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    return localDatabase.listLegacyScoredContestants(sourceKey, groupName)
+    return localDatabase.listScoredContestants(sourceKey, groupName)
   })
 
   ipcMain.handle(IPC_CHANNELS.match.reset, async (event) => {
@@ -835,7 +625,7 @@ app.whenReady().then(async () => {
     return stopDeviceSessions('score-page-exit')
   })
 
-  ipcMain.handle(IPC_CHANNELS.replay.getLegacy, (event, sourceKey, groupName, contestantName) => {
+  ipcMain.handle(IPC_CHANNELS.replay.get, (event, sourceKey, groupName, contestantName) => {
     assertMainSender(event)
     for (const value of [sourceKey, groupName, contestantName]) {
       if (typeof value !== 'string' || !value || value.length > 256) {
@@ -843,18 +633,16 @@ app.whenReady().then(async () => {
       }
     }
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    if (!refreshLegacyProject(sourceKey)) throw new Error('LEGACY_IMPORT_FAILED')
-    return localDatabase.getLegacyReplay(sourceKey, groupName, contestantName)
+    return localDatabase.getReplay(sourceKey, groupName, contestantName)
   })
 
-  ipcMain.handle(IPC_CHANNELS.reports.getLegacy, (event, sourceKey) => {
+  ipcMain.handle(IPC_CHANNELS.reports.get, (event, sourceKey) => {
     assertMainSender(event)
     if (typeof sourceKey !== 'string' || !sourceKey || sourceKey.length > 256) {
       throw new Error('IPC_INVALID_REPORT_CONTEXT')
     }
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
-    if (!refreshLegacyProject(sourceKey)) throw new Error('LEGACY_IMPORT_FAILED')
-    return localDatabase.getLegacyReport(sourceKey)
+    return localDatabase.getReport(sourceKey)
   })
 
   ipcMain.handle(IPC_CHANNELS.projects.create, (event, projectName, mode) => {
@@ -869,19 +657,11 @@ app.whenReady().then(async () => {
 
   ipcMain.handle(IPC_CHANNELS.projects.get, (event, sourceKey) => {
     assertMainSender(event)
-    let config = competitionService.get(sourceKey)
-    if (!config && refreshLegacyProject(sourceKey)) config = competitionService.get(sourceKey)
-    return config
+    return competitionService.get(sourceKey)
   })
 
   ipcMain.handle(IPC_CHANNELS.projects.list, (event) => {
     assertMainSender(event)
-    if (localDatabase) {
-      const imported = importLegacyProjects(localDatabase, getLegacyProjectRoot())
-      if (imported.errors.length > 0) {
-        logToFile(`Legacy import list errors: ${imported.errors.length}`)
-      }
-    }
     return competitionService.list()
   })
 
@@ -898,11 +678,6 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC_CHANNELS.exports.saveReport, (event, request) => {
     assertMainSender(event)
     return saveExportArtifact(() => exportService.buildReport(request))
-  })
-
-  ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
-    assertMainSender(event)
-    return appConfig
   })
 
   ipcMain.handle(IPC_CHANNELS.app.deleteLocalData, async (event) => {
@@ -1087,12 +862,10 @@ app.on('will-quit', () => {
     platformWorker.terminate()
     platformWorker = null
   }
-  exitPyProc()
 })
 
 app.on('window-all-closed', async () => {
   if (!isMac) {
-    exitPyProc()
     await exitPlatformWorker()
     closeLocalDatabase()
     app.quit()

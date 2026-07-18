@@ -5,7 +5,6 @@ type IpcChannels = typeof import('../shared/ipc-contract').IPC_CHANNELS
 
 const IPC_CHANNELS = {
   app: {
-    getServerConfig: 'app:get-server-config',
     deleteLocalData: 'app:delete-local-data',
     restartForUpdate: 'app:restart-for-update',
     updateAvailable: 'app:update-available',
@@ -48,10 +47,10 @@ const IPC_CHANNELS = {
     statusUpdated: 'match:status-updated'
   },
   replay: {
-    getLegacy: 'replay:get-legacy'
+    get: 'replay:get'
   },
   reports: {
-    getLegacy: 'reports:get-legacy'
+    get: 'reports:get'
   },
   projects: {
     create: 'projects:create',
@@ -81,7 +80,6 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): Unsubscr
 
 const ftEngine = {
   app: {
-    getServerConfig: () => ipcRenderer.invoke(IPC_CHANNELS.app.getServerConfig),
     deleteLocalData: () => ipcRenderer.invoke(IPC_CHANNELS.app.deleteLocalData),
     restartForUpdate: () => ipcRenderer.send(IPC_CHANNELS.app.restartForUpdate),
     onUpdateAvailable: (callback) => subscribe(IPC_CHANNELS.app.updateAvailable, callback),
@@ -129,11 +127,11 @@ const ftEngine = {
     onStatusUpdated: (callback) => subscribe(IPC_CHANNELS.match.statusUpdated, callback)
   },
   replay: {
-    getLegacy: (sourceKey, groupName, contestantName) =>
-      ipcRenderer.invoke(IPC_CHANNELS.replay.getLegacy, sourceKey, groupName, contestantName)
+    get: (sourceKey, groupName, contestantName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.replay.get, sourceKey, groupName, contestantName)
   },
   reports: {
-    getLegacy: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.reports.getLegacy, sourceKey)
+    get: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.reports.get, sourceKey)
   },
   projects: {
     create: (projectName, mode) =>

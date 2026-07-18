@@ -13,7 +13,7 @@ import {
 const cases = JSON.parse(readFileSync(new URL('./fixtures/scoring-cases.json', import.meta.url)))
 
 for (const scoringCase of cases) {
-  test(`matches legacy scoring: ${scoringCase.name}`, () => {
+  test(`matches the scoring fixture: ${scoringCase.name}`, () => {
     let state = createRefereeScoringState(scoringCase.mode)
     for (const event of scoringCase.events) {
       state = applyDeviceCounterEvent(state, event)

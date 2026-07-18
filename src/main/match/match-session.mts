@@ -7,8 +7,8 @@ import {
   type RefereeScoringState
 } from '../domain/scoring.mts'
 import type {
-  LegacyScoreEventWrite,
-  LegacyScoreEventWriteResult
+  MatchScoreEventWrite,
+  MatchScoreEventWriteResult
 } from '../persistence/local-database.mts'
 import { normalizeYouTubeUrl, type YouTubeMediaBinding } from '../../shared/media/youtube.mts'
 
@@ -66,7 +66,13 @@ interface MatchSessionDependencies {
     params?: Record<string, unknown>,
     timeoutMs?: number
   ) => Promise<unknown>
-  persistEvent: (input: LegacyScoreEventWrite) => LegacyScoreEventWriteResult
+  persistEvent: (input: MatchScoreEventWrite) => MatchScoreEventWriteResult
+  validateContext?: (
+    sourceKey: string,
+    groupName: string,
+    contestantName: string,
+    refereeIndexes: number[]
+  ) => boolean
   emitRefereeUpdate: (update: MatchRefereeUpdate) => void
   emitContextUpdate?: (context: { groupName: string; contestantName: string }) => void
   emitStatusUpdate?: (status: MatchStatusUpdate) => void
@@ -145,6 +151,17 @@ export class MatchSessionService {
     const normalized = validateStartInput(input)
     if (this.state === 'starting' || this.state === 'active' || this.state === 'stopping') {
       throw new MatchSessionError('MATCH_STATE_CONFLICT', `Cannot start while ${this.state}`)
+    }
+    if (
+      this.dependencies.validateContext &&
+      !this.dependencies.validateContext(
+        normalized.sourceKey,
+        normalized.groupName,
+        normalized.contestantName,
+        normalized.referees.map((referee) => referee.index)
+      )
+    ) {
+      throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'Match context is not configured')
     }
 
     const operationVersion = ++this.operationVersion
@@ -269,6 +286,14 @@ export class MatchSessionService {
     validateContext(groupName, contestantName)
     this.requireActive()
     if (groupName === this.groupName && contestantName === this.contestantName) return
+    if (
+      this.dependencies.validateContext &&
+      !this.dependencies.validateContext(this.sourceKey, groupName, contestantName, [
+        ...this.referees.keys()
+      ])
+    ) {
+      throw new MatchSessionError('MATCH_CONTEXT_INVALID', 'Match context is not configured')
+    }
     if (this.controlOperationPending) {
       throw new MatchSessionError('MATCH_OPERATION_IN_PROGRESS', 'A match control is in progress')
     }
@@ -434,15 +459,13 @@ export class MatchSessionService {
     this.errorCode = null
     this.publishStatus()
 
-    let result: LegacyScoreEventWriteResult
+    let result: MatchScoreEventWriteResult
     try {
       result = this.dependencies.persistEvent({
         sourceKey: this.sourceKey,
         groupName: this.groupName,
         contestantName: this.contestantName,
         refereeIndex: runtime.index,
-        refereeName: runtime.name,
-        refereeMode: runtime.mode,
         event: {
           eventId: String(message.eventId),
           connectionId,

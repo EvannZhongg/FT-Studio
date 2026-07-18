@@ -1,7 +1,5 @@
 function errorCode(error) {
-  return typeof error?.code === 'string' && error.code
-    ? error.code
-    : 'DEVICE_SHUTDOWN_FAILED'
+  return typeof error?.code === 'string' && error.code ? error.code : 'DEVICE_SHUTDOWN_FAILED'
 }
 
 async function runShutdownStep(action) {
@@ -15,9 +13,8 @@ async function runShutdownStep(action) {
 }
 
 export class DeviceLifecycle {
-  constructor({ disconnectWorker, disconnectLegacy, onStopped = () => {} }) {
+  constructor({ disconnectWorker, onStopped = () => {} }) {
     this.disconnectWorker = disconnectWorker
-    this.disconnectLegacy = disconnectLegacy
     this.onStopped = onStopped
     this.pendingStop = null
   }
@@ -32,14 +29,10 @@ export class DeviceLifecycle {
   }
 
   async _stop(reason) {
-    const [worker, legacy] = await Promise.all([
-      runShutdownStep(this.disconnectWorker),
-      runShutdownStep(this.disconnectLegacy)
-    ])
+    const worker = await runShutdownStep(this.disconnectWorker)
     const result = {
-      ok: worker.status !== 'error' && legacy.status !== 'error',
-      worker,
-      legacy
+      ok: worker.status !== 'error',
+      worker
     }
     this.onStopped(reason, result)
     return result

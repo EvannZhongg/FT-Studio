@@ -13,7 +13,6 @@ import type {
 
 export const IPC_CHANNELS = {
   app: {
-    getServerConfig: 'app:get-server-config',
     deleteLocalData: 'app:delete-local-data',
     restartForUpdate: 'app:restart-for-update',
     updateAvailable: 'app:update-available',
@@ -56,10 +55,10 @@ export const IPC_CHANNELS = {
     statusUpdated: 'match:status-updated'
   },
   replay: {
-    getLegacy: 'replay:get-legacy'
+    get: 'replay:get'
   },
   reports: {
-    getLegacy: 'reports:get-legacy'
+    get: 'reports:get'
   },
   projects: {
     create: 'projects:create',
@@ -82,10 +81,6 @@ export const IPC_CHANNELS = {
 } as const
 
 export type Unsubscribe = () => void
-
-export interface ServerConfig {
-  port: number
-}
 
 export interface DeleteLocalDataResult {
   ok: boolean
@@ -142,7 +137,6 @@ export interface DeviceShutdownStep {
 export interface MatchStopResult {
   ok: boolean
   worker: DeviceShutdownStep
-  legacy: DeviceShutdownStep
 }
 
 export interface DeviceRenameRequest {
@@ -220,7 +214,7 @@ export interface ReplayEvent {
   media_sync_status: string
 }
 
-export interface LegacyReplayResult {
+export interface ReplayResult {
   status: 'ok'
   binding: {
     provider: string
@@ -230,20 +224,9 @@ export interface LegacyReplayResult {
   events: ReplayEvent[]
 }
 
-export interface LegacyReportResult {
+export interface ReportResult {
   status: 'ok'
-  config: {
-    project_name: string
-    mode: 'FREE' | 'TOURNAMENT'
-    created_at: string
-    groups: Array<{
-      name: string
-      refCount: number
-      players: string[]
-      referees: Array<{ index: number; name: string; mode: 'SINGLE' | 'DUAL' }>
-    }>
-    media: Record<string, Record<string, Record<string, string>>>
-  }
+  config: CompetitionConfig
   scores: Record<
     string,
     Record<
@@ -261,10 +244,6 @@ export interface LegacyReportResult {
   >
 }
 
-export type LegacyProjectSummary = LegacyReportResult['config'] & {
-  dir_name: string
-}
-
 export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
@@ -278,7 +257,6 @@ export interface OverlayOpenOptions {
 
 export interface FtEngineApi {
   app: {
-    getServerConfig: () => Promise<ServerConfig>
     deleteLocalData: () => Promise<DeleteLocalDataResult>
     restartForUpdate: () => void
     onUpdateAvailable: (callback: () => void) => Unsubscribe
@@ -333,14 +311,14 @@ export interface FtEngineApi {
     onStatusUpdated: (callback: (status: MatchStatusUpdate) => void) => Unsubscribe
   }
   replay: {
-    getLegacy: (
+    get: (
       sourceKey: string,
       groupName: string,
       contestantName: string
-    ) => Promise<LegacyReplayResult | null>
+    ) => Promise<ReplayResult | null>
   }
   reports: {
-    getLegacy: (sourceKey: string) => Promise<LegacyReportResult | null>
+    get: (sourceKey: string) => Promise<ReportResult | null>
   }
   projects: {
     create: (projectName: string, mode: CompetitionMode) => Promise<CompetitionConfig>

@@ -1,24 +1,20 @@
 # FT Engine 当前架构
 
-> 代码核对日期：2026-07-18。本文包含当前工作树中尚未提交的 SQLite `ExportService`。目标已明确不兼容任何旧项目或旧数据格式，但此处仍按实际代码记录尚未删除的 legacy 路径。
+> 代码核对日期：2026-07-18。FastAPI 和旧数据兼容层已经删除；本文按当前单一本地主链路记录事实。
 
 ## 1. 运行拓扑
 
 ~~~text
 Vue Renderer
-  ├─ typed IPC ─ Electron Main
-  │                ├─ CompetitionService / MatchSessionService / ExportService
-  │                ├─ TypeScript scoring domain
-  │                ├─ node:sqlite / ft-engine.db (schema v5)
-  │                ├─ Python Platform Worker (JSONL stdio)
-  │                └─ Window / Overlay / Shortcut / Update
-  │
-  └─ Axios ─ Legacy FastAPI backend
-             ├─ report/replay/status fallback
-             └─ dormant export/project/hardware/scoring/media routes
+  └─ typed IPC ─ Electron Main
+                   ├─ CompetitionService / MatchSessionService / ExportService
+                   ├─ TypeScript scoring domain
+                   ├─ node:sqlite / ft-engine.db (clean schema v1)
+                   ├─ Python Platform Worker (JSONL stdio)
+                   └─ Window / Overlay / Shortcut / Update
 ~~~
 
-Electron 仍同时启动 `server.py`、Platform Worker 和 Electron Main 内 SQLite。FastAPI 已退出项目与实时比赛主路径，但尚未停止启动和打包。
+Electron 只启动 Platform Worker；本地数据库运行在 Main 内。应用不启动 HTTP/WebSocket 服务，也不打包 backend-engine。
 
 ## 2. 当前能力边界
 
@@ -26,14 +22,13 @@ Electron 仍同时启动 `server.py`、Platform Worker 和 Electron Main 内 SQL
 | --- | --- | --- |
 | 窗口、快捷键、Overlay | Renderer -> IPC -> Main | 已切换 |
 | 窗口枚举和 BLE/USB 全生命周期 | Main -> Platform Worker | 已切换 |
-| 实时比赛状态与计分 | Renderer -> MatchSession -> Worker/TS domain | 已切换，不调用 legacy 实时传输 |
+| 实时比赛状态与计分 | Renderer -> MatchSession -> Worker/TS domain | 单一路径 |
 | 实时事件持久化 | MatchSession -> SQLite | 原子写入成功后才发布分数 |
-| 新建、更新、继续、列表、删除项目 | Renderer -> CompetitionService -> SQLite | 当前工作树已接入；新项目不创建 legacy 目录 |
+| 新建、更新、继续、列表、删除项目 | Renderer -> CompetitionService -> SQLite | 单一路径 |
 | 设置和设备备注 | Renderer -> Main -> SQLite | 已切换 |
 | 媒体 URL、绑定和播放锚点 | Renderer -> Main -> SQLite/MatchSession | 已切换 |
-| 报表、复盘、已计分选手 | SQLite IPC 优先，REST fallback | SQLite 查询可读原生项目，fallback 尚未删除 |
-| 明细 ZIP、日志 CSV、SRT、报表 CSV | Renderer -> Main ExportService -> SQLite snapshot -> 系统保存对话框 | 当前工作树已切换；Renderer 不接触导出字节或目标路径 |
-| 旧项目导入和 shadow event | legacy 文件/stdout -> SQLite | 代码仍存在，但新目标中应直接删除 |
+| 报表、复盘、已计分选手 | Renderer -> Main SQLite Query | 单一路径 |
+| 明细 ZIP、日志 CSV、SRT、报表 CSV | Renderer -> Main ExportService -> SQLite snapshot -> 系统保存对话框 | Renderer 不接触导出字节或目标路径 |
 
 ## 3. 原生项目数据流
 
@@ -47,33 +42,33 @@ Renderer projects.create/update
   -> report/replay SQLite query
 ~~~
 
-原生项目不依赖 `match_data/<dir>/config.json`。当前只创建一个默认 `Main` Stage，并继续向 Renderer 返回旧式 `project_name/mode/groups/refCount/players/referees` DTO；目标多阶段模型尚未接入 application service 和 UI。
+项目只存在于 SQLite。当前只创建一个默认 `Main` Stage，并继续向 Renderer 返回 `project_name/mode/groups/refCount/players/referees` DTO；目标多阶段模型尚未接入 application service 和 UI。
+
+数据库使用 application ID 和 clean schema v1。检测到旧 schema 时先写入 `backups/`，随后重建空库；不读取或导入旧项目目录、CSV 或旧表。
 
 ## 4. 已确认问题
 
 ### 高优先级
 
-1. FastAPI 已不承担原生赛事主路径，但 Main 仍启动、等待、监控并打包它；Renderer 的报表、复盘、状态和设备重命名仍保留 Axios fallback。
-2. 当前只有单一默认 Stage。多阶段、尝试次数以及 Competition/Stage/MatchSession 状态流转尚未形成完整领域行为。
-3. 仍缺真实 Electron 验收：需要在 FastAPI 不启动时验证创建、计分、切换、Reset、停止、报表、复盘和系统保存导出。
-4. Worker 自动重启耗尽后虽发布错误状态，但没有用户触发的重试命令。
+1. 当前只有单一默认 Stage。多阶段、尝试次数以及 Competition/Stage/MatchSession 状态流转尚未形成完整领域行为。
+2. `index.js` 和 `LocalDatabase` 仍聚合多域职责，需要按应用服务和 Repository 拆分。
+3. Worker 自动重启耗尽后虽发布错误状态，但没有用户触发的重试命令。
+4. 仍需真实 BLE/USB、睡眠恢复、OBS、YouTube 网络和 macOS 签名/权限验收。
 
 ### 结构问题
 
-1. 报表、复盘和状态查询仍使用 `getLegacy*`/`listLegacy*` 命名并保留 Axios fallback，和“不兼容旧数据”的新方向冲突。
-2. `CompetitionService` 已建立 application 边界，但 IPC 注册继续集中在 `src/main/index.js`，Repository 实现继续集中在 `LocalDatabase`。
-3. Main 仍启动、等待、监控和打包 FastAPI，还解析已无主路径事件来源的 backend stdout；原生导出完成后已没有继续保留该进程的产品理由。
-4. `server.py`、`utils/storage.py`、`utils/media.py` 和 Python legacy 测试构成一整套重复运行实现；既然不要求旧数据兼容，不应继续拆分维护。
+1. `CompetitionService` 和 `ExportService` 已建立 application 边界，但 IPC 注册继续集中在 `src/main/index.js`。
+2. `LocalDatabase` 仍同时包含 schema、Competition、Match、Settings、Replay、Report 和 Export 查询实现。
+3. `MatchSessionService` 仍同时负责状态机、设备控制、媒体锚点、事件协调和通知。
 
 ## 5. 当前代码集中点
 
-- `server.py` 约 1363 行，混合 Scanner、设备节点、计分、WebSocket、项目、媒体和导出。
-- `src/main/index.js` 约 1100 行，混合进程、数据库、Worker、服务组合、全部 IPC 和窗口生命周期。
-- `src/main/match/match-session.mts` 约 742 行，混合状态机、设备控制、事件协调、媒体锚点和通知。
-- `src/main/persistence/local-database.mts` 约 1930 行，混合 migration、原生 Competition、legacy import、实时仓储和查询投影。
-- `src/renderer/src/stores/refereeStore.js` 约 559 行，混合设置、项目、设备、比赛、Overlay、复盘和导出。
+- `src/main/index.js` 约 873 行，混合数据库、Worker、服务组合、全部 IPC 和窗口生命周期。
+- `src/main/match/match-session.mts` 约 765 行，混合状态机、设备控制、事件协调、媒体锚点和通知。
+- `src/main/persistence/local-database.mts` 约 1147 行，混合 schema、多个 Repository 和查询投影。
+- `src/renderer/src/stores/refereeStore.js` 约 504 行，混合设置、项目、设备、比赛、Overlay、复盘和导出。
 
-后续不能只删除 `server.py`；还要同步移除 Main legacy 进程管理/importer、Renderer fallback、旧 Schema 字段和构建资源。
+下一阶段需要按既有边界拆分，而不是继续向这些集中点追加职责。
 
 ## 6. UI 当前差距
 
@@ -88,9 +83,11 @@ Renderer projects.create/update
 
 2026-07-18 当前工作树检查：
 
-- `npm test`：61/61 通过。
+- `npm test`：54/54 通过。
 - `npm run typecheck`：通过。
-- `python -m unittest discover -s tests`：36/36 通过。
-- Node 测试已覆盖原生 Competition 创建、更新、计分、结构锁定、删除，以及 SQLite 导出快照、CSV/SRT/ZIP 格式、范围过滤和文件错误映射。
+- `python -m unittest discover -s tests`：17/17 通过，仅包含 Platform Worker。
+- `npm run build`、`npm run build:worker:win`、`npm run build:unpack`：通过。
+- 解包版进程级检查：SQLite 和 Worker 握手成功，进程树无 TCP 监听；资源目录只有 `local-platform-worker.exe`，没有 backend、server 或端口配置。
+- Node 测试覆盖 Competition、计分、干净 Schema 重建、上下文拒绝、导出格式和文件错误映射。
 
-Python 36 项主要验证准备删除的 legacy 实现，不能再作为目标架构的验收规模。当前结果也不代表 Electron、打包版、真实 BLE/USB、OBS、YouTube 网络状态或原生项目导出已经通过。
+当前结果不代表真实 BLE/USB、OBS、YouTube 网络、macOS 权限/签名或 Windows 安装器已经完成发布验收。

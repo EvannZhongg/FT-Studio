@@ -340,7 +340,6 @@ const registerShortcut = async (shortcut) => {
 }
 
 onMounted(async () => {
-  await store.initConfig()
   await store.fetchSettings()
 
   if (store.currentContext.groupName) {

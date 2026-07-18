@@ -26,12 +26,14 @@ function createFixture() {
     events.push(input)
     return { status: 'inserted' }
   }
+  let contextImplementation = () => true
   const service = new MatchSessionService({
     requestWorker: async (method, params = {}) => {
       workerCalls.push({ method, params })
       return workerImplementation(method, params)
     },
     persistEvent: (input) => persistenceImplementation(input),
+    validateContext: (...args) => contextImplementation(...args),
     upsertMediaBinding: (...args) => {
       mediaBindings.push(args)
       return true
@@ -60,6 +62,9 @@ function createFixture() {
     },
     setPersistenceImplementation: (implementation) => {
       persistenceImplementation = implementation
+    },
+    setContextImplementation: (implementation) => {
+      contextImplementation = implementation
     }
   }
 }
@@ -111,6 +116,24 @@ test('connects bindings and publishes explicit session state', async () => {
   assert.equal(fixture.statuses.at(-1).state, 'active')
 })
 
+test('rejects unconfigured contexts before controlling devices', async () => {
+  const fixture = createFixture()
+  fixture.setContextImplementation(() => false)
+  await assert.rejects(fixture.service.start(startInput), { code: 'MATCH_CONTEXT_INVALID' })
+  assert.deepEqual(fixture.workerCalls, [])
+
+  fixture.setContextImplementation(() => true)
+  await fixture.service.start(startInput)
+  fixture.setContextImplementation(() => false)
+  await assert.rejects(fixture.service.setContext('Final', 'Bob'), {
+    code: 'MATCH_CONTEXT_INVALID'
+  })
+  assert.equal(
+    fixture.workerCalls.some((call) => call.method === 'device.resetAll'),
+    false
+  )
+})
+
 test('persists an event before publishing its score', async () => {
   const fixture = createFixture()
   await fixture.service.start(startInput)
@@ -140,8 +163,6 @@ test('persists an event before publishing its score', async () => {
     groupName: 'Final',
     contestantName: 'Alice',
     refereeIndex: 1,
-    refereeName: 'Judge A',
-    refereeMode: 'DUAL',
     event: {
       eventId: 'event-secondary',
       connectionId: 'match-ref-1-secondary',

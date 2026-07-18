@@ -167,7 +167,6 @@ const visibleReplayScores = computed(() => {
 })
 
 onMounted(async () => {
-  await store.initConfig()
   projects.value = await store.fetchHistoryProjects()
 })
 

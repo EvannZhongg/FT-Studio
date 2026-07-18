@@ -16,14 +16,14 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "test": "node --test tests/competition-service.test.mjs tests/device-lifecycle.test.mjs tests/export-boundary.test.mjs tests/export-service.test.mjs tests/legacy-importer.test.mjs tests/legacy-shadow-event.test.mjs tests/local-database.test.mjs tests/match-session.test.mjs tests/project-boundary.test.mjs tests/realtime-boundary.test.mjs tests/replay-scores.test.mjs tests/scoring-domain.test.mjs tests/security-boundary.test.mjs tests/settings-boundary.test.mjs tests/worker-client.test.mjs tests/youtube-media.test.mjs",
-    "build:backend": "node scripts/build-backend.js",
-    "build:backend:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-backend-win.ps1",
-    "build:backend:mac": "bash ./scripts/build-backend-mac.sh",
+    "test": "node --test tests/competition-service.test.mjs tests/device-lifecycle.test.mjs tests/export-boundary.test.mjs tests/export-service.test.mjs tests/local-database.test.mjs tests/match-session.test.mjs tests/project-boundary.test.mjs tests/realtime-boundary.test.mjs tests/replay-scores.test.mjs tests/scoring-domain.test.mjs tests/security-boundary.test.mjs tests/settings-boundary.test.mjs tests/worker-client.test.mjs tests/youtube-media.test.mjs",
+    "build:worker": "node scripts/build-worker.js",
+    "build:worker:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-worker-win.ps1",
+    "build:worker:mac": "bash ./scripts/build-worker-mac.sh",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build:backend:win && npm run build && electron-builder --win",
-    "build:mac": "npm run build:backend:mac && npm run build && electron-builder --mac && node scripts/rename-mac-artifacts.js",
+    "build:win": "npm run build:worker:win && npm run build && electron-builder --win",
+    "build:mac": "npm run build:worker:mac && npm run build && electron-builder --mac && node scripts/rename-mac-artifacts.js",
     "build:linux": "npm run build && electron-builder --linux"
   },
   "build": {
@@ -37,20 +37,6 @@
     "files": [
       "out/**/*",
       "resources/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "./config.yaml",
-        "to": "config.yaml"
-      },
-      {
-        "from": "./server.py",
-        "to": "server.py"
-      },
-      {
-        "from": "./utils",
-        "to": "utils"
-      }
     ],
     "publish": [
       {
@@ -72,13 +58,6 @@
       ],
       "legalTrademarks": "freakthrow™",
       "extraResources": [
-        {
-          "from": "./backend-engine.exe",
-          "to": "backend-engine.exe",
-          "filter": [
-            "**/*"
-          ]
-        },
         {
           "from": "./local-platform-worker.exe",
           "to": "local-platform-worker.exe",
@@ -103,13 +82,6 @@
         "NSBluetoothPeripheralUsageDescription": "FT Engine 需要访问蓝牙以连接计分控制器"
       },
       "extraResources": [
-        {
-          "from": "./backend-engine",
-          "to": "backend-engine",
-          "filter": [
-            "**/*"
-          ]
-        },
         {
           "from": "./local-platform-worker",
           "to": "local-platform-worker",
@@ -151,11 +123,9 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "axios": "^1.13.2",
     "chart.js": "^4.5.1",
     "electron-updater": "^6.1.7",
     "fflate": "^0.8.2",
-    "js-yaml": "^4.1.1",
     "lucide-vue-next": "^0.559.0",
     "pinia": "^3.0.4",
     "sass": "^1.95.1",

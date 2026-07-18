@@ -6,7 +6,11 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 
-import { LATEST_SCHEMA_VERSION, LocalDatabase } from '../src/main/persistence/local-database.mts'
+import {
+  DATABASE_APPLICATION_ID,
+  LATEST_SCHEMA_VERSION,
+  LocalDatabase
+} from '../src/main/persistence/local-database.mts'
 
 const tempRoots = []
 
@@ -16,6 +20,31 @@ function createDatabase() {
   const backupRoot = path.join(root, 'backups')
   tempRoots.push(root)
   return { root, databasePath, backupRoot, database: new LocalDatabase(databasePath, backupRoot) }
+}
+
+function createConfiguredCompetition(database) {
+  const competition = database.createCompetition({ projectName: 'Test Event', mode: 'FREE' })
+  database.updateCompetition(competition.source_key, {
+    projectName: 'Test Event',
+    mode: 'FREE',
+    groups: [
+      {
+        name: 'Final',
+        refCount: 1,
+        players: ['Alice'],
+        referees: [
+          {
+            index: 1,
+            name: 'Judge A',
+            mode: 'SINGLE',
+            pri_addr: 'device-1',
+            sec_addr: ''
+          }
+        ]
+      }
+    ]
+  })
+  return competition
 }
 
 test.afterEach(() => {
@@ -29,6 +58,7 @@ test('creates the versioned local schema', () => {
   database.open()
   try {
     assert.equal(database.getSchemaVersion(), LATEST_SCHEMA_VERSION)
+    assert.equal(database.getApplicationId(), DATABASE_APPLICATION_ID)
     const tables = database.listTableNames()
     for (const table of [
       'competitions',
@@ -42,8 +72,7 @@ test('creates the versioned local schema', () => {
       'media_bindings',
       'app_settings',
       'share_drafts',
-      'upload_tasks',
-      'legacy_imports'
+      'upload_tasks'
     ]) {
       assert.ok(tables.includes(table), `missing table: ${table}`)
     }
@@ -52,24 +81,30 @@ test('creates the versioned local schema', () => {
   }
 })
 
-test('backs up an existing database before migration', () => {
+test('backs up and replaces a database from the retired schema', () => {
   const { root, databasePath, backupRoot, database } = createDatabase()
   mkdirSync(root, { recursive: true })
-  const legacy = new DatabaseSync(databasePath)
-  legacy.exec('CREATE TABLE legacy_marker (value TEXT); PRAGMA user_version = 0;')
-  legacy.close()
+  const retired = new DatabaseSync(databasePath)
+  retired.exec('CREATE TABLE retired_marker (value TEXT); PRAGMA user_version = 5;')
+  retired.close()
 
   database.open()
-  database.close()
-  const backups = readdirSync(backupRoot)
-  assert.equal(backups.length, 1)
-  assert.match(backups[0], /^ft-engine-v0-/)
-  assert.ok(existsSync(path.join(backupRoot, backups[0])))
+  try {
+    assert.equal(database.getSchemaVersion(), LATEST_SCHEMA_VERSION)
+    assert.equal(database.listTableNames().includes('retired_marker'), false)
+    const backups = readdirSync(backupRoot)
+    assert.equal(backups.length, 1)
+    assert.match(backups[0], /^ft-engine-reset-v5-/)
+    assert.ok(existsSync(path.join(backupRoot, backups[0])))
+  } finally {
+    database.close()
+  }
 })
 
 test('appends immutable score events idempotently', () => {
   const { database } = createDatabase()
   database.open()
+  const competition = createConfiguredCompetition(database)
   const event = {
     eventId: 'event-1',
     connectionId: 'judge-1-primary',
@@ -85,9 +120,37 @@ test('appends immutable score events idempotently', () => {
     majorPenalty: 0
   }
   try {
-    assert.equal(database.appendScoreEvent(event), true)
-    assert.equal(database.appendScoreEvent({ ...event, currentTotal: 99 }), false)
-    assert.deepEqual(database.getScoreEvents(), [event])
+    assert.deepEqual(
+      database.appendMatchScoreEvent({
+        sourceKey: competition.source_key,
+        groupName: 'Final',
+        contestantName: 'Alice',
+        refereeIndex: 1,
+        event
+      }),
+      { status: 'inserted' }
+    )
+    assert.deepEqual(
+      database.appendMatchScoreEvent({
+        sourceKey: competition.source_key,
+        groupName: 'Final',
+        contestantName: 'Alice',
+        refereeIndex: 1,
+        event: { ...event, currentTotal: 99 }
+      }),
+      { status: 'duplicate' }
+    )
+    const [stored] = database.getScoreEvents()
+    const { matchSessionId, refereeId, ...eventValue } = stored
+    assert.match(matchSessionId, /^[0-9a-f]{32}$/)
+    assert.match(refereeId, /^[0-9a-f]{32}$/)
+    assert.deepEqual(eventValue, {
+      ...event,
+      mediaProvider: '',
+      mediaId: '',
+      mediaTimeMs: null,
+      mediaSyncStatus: 'not_ready'
+    })
   } finally {
     database.close()
   }
@@ -97,7 +160,46 @@ test('rejects invalid events before writing', () => {
   const { database } = createDatabase()
   database.open()
   try {
-    assert.throws(() => database.appendScoreEvent({ eventId: 'invalid' }), /Invalid score event/)
+    assert.throws(
+      () => database.appendMatchScoreEvent({ event: { eventId: 'invalid' } }),
+      /Invalid score event/
+    )
+    assert.deepEqual(database.getScoreEvents(), [])
+  } finally {
+    database.close()
+  }
+})
+
+test('rejects score events outside the configured competition graph', () => {
+  const { database } = createDatabase()
+  database.open()
+  const competition = createConfiguredCompetition(database)
+  try {
+    const timestamp = '2026-07-18T08:00:00.100Z'
+    assert.deepEqual(
+      database.appendMatchScoreEvent({
+        sourceKey: competition.source_key,
+        groupName: 'Final',
+        contestantName: 'Unknown',
+        refereeIndex: 1,
+        event: {
+          eventId: 'outside-context',
+          connectionId: 'judge-1-primary',
+          deviceId: 'device-1',
+          role: 'primary',
+          eventType: 1,
+          deviceTimestampMs: 100,
+          receivedAt: timestamp,
+          systemTime: timestamp,
+          totalPlus: 1,
+          totalMinus: 0,
+          currentTotal: 1,
+          majorPenalty: 0
+        }
+      }),
+      { status: 'context_missing' }
+    )
+    assert.equal(database.getCompetitionConfig(competition.source_key)?.groups[0].players.length, 1)
     assert.deepEqual(database.getScoreEvents(), [])
   } finally {
     database.close()

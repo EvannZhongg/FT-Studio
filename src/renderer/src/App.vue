@@ -64,7 +64,6 @@ const isOverlayWindow = computed(() => {
 onMounted(async () => {
   document.title = isOverlayWindow.value ? 'FT Engine Overlay' : 'FT Engine'
 
-  await store.initConfig()
   await store.connectMatchEvents()
 
   // 2. 自动更新监听逻辑 (新增)

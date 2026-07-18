@@ -84,13 +84,11 @@ function createFixture() {
 
 function appendEvent(database, sourceKey, values) {
   const systemTime = values.systemTime
-  const result = database.appendLegacyScoreEvent({
+  const result = database.appendMatchScoreEvent({
     sourceKey,
     groupName: values.groupName,
     contestantName: values.contestantName,
     refereeIndex: values.refereeIndex,
-    refereeName: values.refereeName,
-    refereeMode: values.refereeMode,
     event: {
       eventId: values.eventId,
       connectionId: `connection-${values.eventId}`,
@@ -233,7 +231,7 @@ test('builds scoped CSV and SRT files from one SQLite competition snapshot', () 
   }
 })
 
-test('supports whole-competition and referee scopes without reading legacy CSV files', () => {
+test('supports whole-competition and referee scopes from SQLite', () => {
   const fixture = createFixture()
   try {
     seedScores(fixture)
