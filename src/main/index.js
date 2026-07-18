@@ -17,12 +17,14 @@ import {
 import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
+import { LocalDatabase } from './persistence/local-database.mts'
 
 const { spawn, execSync } = require('child_process')
 const net = require('net')
 
 let pyProc = null
 let platformWorker = null
+let localDatabase = null
 let platformWorkerRestartTimer = null
 let platformWorkerRestartCount = 0
 let platformWorkerStopping = false
@@ -169,10 +171,33 @@ const exitPyProc = () => {
   }
 }
 
+function openLocalDatabase() {
+  const dataRoot = getDataRoot(app)
+  const database = new LocalDatabase(
+    join(dataRoot, 'ft-engine.db'),
+    join(dataRoot, 'backups')
+  )
+  database.open()
+  localDatabase = database
+  console.log('[Electron] Local database ready:', database.databasePath)
+  logToFile(`Local database ready: ${database.databasePath}`)
+}
+
+function closeLocalDatabase() {
+  if (!localDatabase) return
+  localDatabase.close()
+  localDatabase = null
+}
+
 function getLocalDataTargets() {
   const dataRoot = getDataRoot(app)
   return [
     join(dataRoot, 'app_settings.json'),
+    join(dataRoot, 'ft-engine.db'),
+    join(dataRoot, 'ft-engine.db-shm'),
+    join(dataRoot, 'ft-engine.db-wal'),
+    join(dataRoot, 'backups'),
+    join(dataRoot, 'exports'),
     join(dataRoot, 'match_data'),
     join(dataRoot, 'logs')
   ]
@@ -180,6 +205,7 @@ function getLocalDataTargets() {
 
 function deleteLocalDataFiles() {
   closeStartupLog()
+  closeLocalDatabase()
   exitPyProc()
   if (platformWorker) {
     platformWorkerStopping = true
@@ -370,6 +396,12 @@ app.whenReady().then(async () => {
   })
 
   createPyProc()
+  try {
+    openLocalDatabase()
+  } catch (error) {
+    console.error('[Electron] Shadow database unavailable, legacy storage remains active:', error.message)
+    logToFile(`Shadow database unavailable: ${error.message}`)
+  }
   platformWorkerStopping = false
   try {
     await createPlatformWorker()
@@ -405,6 +437,7 @@ app.whenReady().then(async () => {
   ipcMain.on(IPC_CHANNELS.app.restartForUpdate, async (event) => {
     if (rejectUnexpectedSender(event, mainWindow, IPC_CHANNELS.app.restartForUpdate)) return
     await exitPlatformWorker()
+    closeLocalDatabase()
     exitPyProc()
     autoUpdater.quitAndInstall()
   })
@@ -648,6 +681,7 @@ app.whenReady().then(async () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  closeLocalDatabase()
   platformWorkerStopping = true
   if (platformWorkerRestartTimer) {
     clearTimeout(platformWorkerRestartTimer)
@@ -664,6 +698,7 @@ app.on('window-all-closed', async () => {
   if (!isMac) {
     exitPyProc()
     await exitPlatformWorker()
+    closeLocalDatabase()
     app.quit()
   }
 })

@@ -19,6 +19,11 @@ __pycache__/
 # Local app data
 app_settings.json
 match_data/
+ft-engine.db
+ft-engine.db-shm
+ft-engine.db-wal
+backups/
+exports/
 update.md
 esp32.c
 
