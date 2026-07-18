@@ -24,6 +24,9 @@ export const IPC_CHANNELS = {
   devices: {
     scan: 'devices:scan'
   },
+  replay: {
+    getLegacy: 'replay:get-legacy'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -86,6 +89,37 @@ export interface DeviceScanResult {
   errors: Array<{ transport: 'BLE' | 'USB'; code: string }>
 }
 
+export interface ReplayEvent {
+  event_id: string
+  system_time: string
+  ble_timestamp: number
+  referee_index: number
+  referee_name: string
+  device_role: 'PRIMARY' | 'SECONDARY'
+  event_type: number
+  delta_plus: number
+  delta_minus: number
+  delta_penalty: number
+  total_plus: number
+  total_minus: number
+  major_penalty: number
+  current_total: number
+  media_provider: string
+  media_id: string
+  media_time_ms: number | null
+  media_sync_status: string
+}
+
+export interface LegacyReplayResult {
+  status: 'ok'
+  binding: {
+    provider: string
+    video_id: string
+    canonical_url: string
+  } | null
+  events: ReplayEvent[]
+}
+
 export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
@@ -122,6 +156,10 @@ export interface FtEngineApi {
   }
   devices: {
     scan: (options: { flush: boolean; remarks: Record<string, string> }) => Promise<DeviceScanResult>
+  }
+  replay: {
+    getLegacy: (sourceKey: string, groupName: string, contestantName: string) =>
+      Promise<LegacyReplayResult | null>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

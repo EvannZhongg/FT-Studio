@@ -549,6 +549,20 @@ app.whenReady().then(async () => {
     return platformWorker.request('device.scan', { flush, remarks }, flush ? 8000 : 5000)
   })
 
+  ipcMain.handle(
+    IPC_CHANNELS.replay.getLegacy,
+    (event, sourceKey, groupName, contestantName) => {
+      assertMainSender(event)
+      for (const value of [sourceKey, groupName, contestantName]) {
+        if (typeof value !== 'string' || !value || value.length > 256) {
+          throw new Error('IPC_INVALID_REPLAY_CONTEXT')
+        }
+      }
+      if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+      return localDatabase.getLegacyReplay(sourceKey, groupName, contestantName)
+    }
+  )
+
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {
     assertMainSender(event)
     return appConfig

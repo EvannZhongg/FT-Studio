@@ -7,6 +7,7 @@ export const LATEST_SCHEMA_VERSION = 3
 
 export interface StoredScoreEvent {
   eventId: string
+  sourceEventId?: string
   matchSessionId?: string | null
   refereeId?: string | null
   connectionId: string
@@ -70,6 +71,27 @@ export interface LegacyProjectImport {
     name: string
   }
   groups: LegacyImportGroup[]
+}
+
+export interface LegacyReplayEvent {
+  event_id: string
+  system_time: string
+  ble_timestamp: number
+  referee_index: number
+  referee_name: string
+  device_role: 'PRIMARY' | 'SECONDARY'
+  event_type: number
+  delta_plus: number
+  delta_minus: number
+  delta_penalty: number
+  total_plus: number
+  total_minus: number
+  major_penalty: number
+  current_total: number
+  media_provider: string
+  media_id: string
+  media_time_ms: number | null
+  media_sync_status: string
 }
 
 const MIGRATIONS = [
@@ -500,6 +522,92 @@ export class LocalDatabase {
     }
   }
 
+  getLegacyReplay(sourceKey: string, groupName: string, contestantName: string): {
+    status: 'ok'
+    binding: {
+      provider: string
+      video_id: string
+      canonical_url: string
+    } | null
+    events: LegacyReplayEvent[]
+  } | null {
+    const database = this.requireDatabase()
+    const contestant = database.prepare(`
+      SELECT p.id
+      FROM legacy_imports li
+      JOIN stages s ON s.competition_id = li.competition_id
+      JOIN competition_groups g ON g.stage_id = s.id
+      JOIN contestants p ON p.group_id = g.id
+      WHERE li.source_key = ? AND g.name = ? AND p.name = ?
+      LIMIT 1
+    `).get(sourceKey, groupName, contestantName) as { id: string } | undefined
+    if (!contestant) return null
+
+    const bindingRow = database.prepare(`
+      SELECT provider, media_id, canonical_url
+      FROM media_bindings
+      WHERE contestant_id = ?
+      LIMIT 1
+    `).get(contestant.id) as {
+      provider: string
+      media_id: string
+      canonical_url: string
+    } | undefined
+    const rows = database.prepare(`
+      SELECT
+        e.*,
+        r.source_referee_index,
+        r.name AS referee_name
+      FROM match_sessions ms
+      JOIN score_events e ON e.match_session_id = ms.id
+      LEFT JOIN referees r ON r.id = e.referee_id
+      WHERE ms.contestant_id = ?
+      ORDER BY e.system_time, r.source_referee_index, e.event_id
+    `).all(contestant.id) as Array<Record<string, string | number | null>>
+
+    const previousByReferee = new Map<number, { plus: number; minus: number; penalty: number }>()
+    const events = rows.map((row) => {
+      const refereeIndex = Number(row.source_referee_index ?? legacyRefereeIndex(String(row.connection_id)))
+      const previous = previousByReferee.get(refereeIndex) ?? { plus: 0, minus: 0, penalty: 0 }
+      const plus = Number(row.total_plus)
+      const minus = Number(row.total_minus)
+      const penalty = Number(row.major_penalty)
+      previousByReferee.set(refereeIndex, { plus, minus, penalty })
+      const raw = JSON.parse(String(row.raw_payload)) as StoredScoreEvent
+      const deviceRole: 'PRIMARY' | 'SECONDARY' =
+        String(row.role) === 'secondary' ? 'SECONDARY' : 'PRIMARY'
+      return {
+        event_id: raw.sourceEventId ?? String(row.event_id),
+        system_time: String(row.system_time),
+        ble_timestamp: Number(row.device_timestamp_ms),
+        referee_index: refereeIndex,
+        referee_name: String(row.referee_name || `Referee ${refereeIndex}`),
+        device_role: deviceRole,
+        event_type: Number(row.event_type),
+        delta_plus: plus - previous.plus,
+        delta_minus: minus - previous.minus,
+        delta_penalty: penalty - previous.penalty,
+        total_plus: plus,
+        total_minus: minus,
+        major_penalty: penalty,
+        current_total: Number(row.current_total),
+        media_provider: String(row.media_provider),
+        media_id: String(row.media_id),
+        media_time_ms: row.media_time_ms === null ? null : Number(row.media_time_ms),
+        media_sync_status: String(row.media_sync_status)
+      }
+    })
+    return {
+      status: 'ok',
+      binding: bindingRow ? {
+        provider: bindingRow.provider,
+        video_id: bindingRow.media_id,
+        canonical_url: bindingRow.canonical_url
+      } : null,
+      events
+    }
+  }
+
   private applyMigrations(currentVersion: number): void {
     const database = this.requireDatabase()
     database.exec('BEGIN IMMEDIATE')
@@ -593,4 +701,10 @@ function validateLegacyImport(input: LegacyProjectImport): void {
   ) {
     throw new Error('Invalid legacy project import')
   }
+}
+
+
+function legacyRefereeIndex(connectionId: string): number {
+  const match = /^legacy-ref-(\d+)-/.exec(connectionId)
+  return match ? Number(match[1]) : 0
 }

@@ -377,12 +377,8 @@ export const useRefereeStore = defineStore('referee', {
 
     async fetchReplayData(dirName, groupName, contestantName) {
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/replay`, {
-          dir_name: dirName,
-          group: groupName,
-          contestant: contestantName
-        })
-        return res.data.status === 'ok' ? res.data : null
+        if (!window.ftEngine?.replay) return null
+        return await window.ftEngine.replay.getLegacy(dirName, groupName, contestantName)
       } catch (e) {
         console.error('Fetch replay failed', e)
         return null

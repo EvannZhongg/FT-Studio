@@ -208,11 +208,14 @@ function readScoreEvents(
   return rows.map((row, rowIndex) => {
     const systemTime = String(row.SystemTime || '')
     const role = String(row.DeviceRole).toUpperCase() === 'SECONDARY' ? 'secondary' : 'primary'
+    const sourceEventId = String(row.EventId || `ref${file.refereeIndex}-row${rowIndex}`)
     const eventId = String(row.EventId || stableId(
       sourceKey, groupName, contestantName, String(file.refereeIndex), String(rowIndex)
     ))
+    const mediaTimeMs = optionalInteger(row.MediaTimeMs)
     return {
       eventId,
+      sourceEventId,
       matchSessionId: sessionId,
       refereeId,
       connectionId: `legacy-ref-${file.refereeIndex}-${role}`,
@@ -228,8 +231,8 @@ function readScoreEvents(
       majorPenalty: integer(row.MajorPenalty || row.penalty),
       mediaProvider: String(row.MediaProvider || ''),
       mediaId: String(row.MediaId || ''),
-      mediaTimeMs: optionalInteger(row.MediaTimeMs),
-      mediaSyncStatus: String(row.MediaSyncStatus || 'not_ready')
+      mediaTimeMs,
+      mediaSyncStatus: String(row.MediaSyncStatus || (mediaTimeMs === null ? 'not_ready' : 'aligned'))
     }
   })
 }

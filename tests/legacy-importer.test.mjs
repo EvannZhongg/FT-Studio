@@ -92,6 +92,36 @@ test('imports old projects idempotently and preserves group referee indexes', ()
       referees: 2,
       events: 3
     })
+    const aliceReplay = database.getLegacyReplay(fixture.projectName, 'Open Group', 'Alice')
+    assert.equal(aliceReplay?.binding, null)
+    assert.deepEqual(aliceReplay?.events.map((event) => ({
+      event_id: event.event_id,
+      referee_index: event.referee_index,
+      referee_name: event.referee_name,
+      delta_plus: event.delta_plus,
+      delta_minus: event.delta_minus,
+      current_total: event.current_total
+    })), [
+      {
+        event_id: 'ref1-row0',
+        referee_index: 1,
+        referee_name: 'Judge A',
+        delta_plus: 1,
+        delta_minus: 0,
+        current_total: 1
+      },
+      {
+        event_id: 'ref1-row1',
+        referee_index: 1,
+        referee_name: 'Judge A',
+        delta_plus: 0,
+        delta_minus: 1,
+        current_total: 0
+      }
+    ])
+    const bobReplay = database.getLegacyReplay(fixture.projectName, 'Final Group', 'Bob')
+    assert.equal(bobReplay?.binding?.video_id, 'dQw4w9WgXcQ')
+    assert.equal(bobReplay?.events[0].media_sync_status, 'aligned')
 
     const second = importLegacyProjects(database, fixture.legacyRoot)
     assert.deepEqual(second, { projects: 1, imported: 0, events: 0, errors: [] })
