@@ -26,10 +26,10 @@ export const useRefereeStore = defineStore('referee', {
     // --- 初始化配置 (从 Electron 获取端口) ---
     async initConfig() {
       // 检查是否在 Electron 环境下
-      if (window.electron && window.electron.ipcRenderer) {
+      if (window.ftEngine?.app) {
         try {
           // 调用主进程接口获取 config.yaml 中的端口
-          const config = await window.electron.ipcRenderer.invoke('get-server-config')
+          const config = await window.ftEngine.app.getServerConfig()
           const port = config.port
 
           // 更新 API 地址

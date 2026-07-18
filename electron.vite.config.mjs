@@ -4,7 +4,16 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   main: {},
-  preload: {},
+  preload: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.js'),
+          overlay: resolve('src/preload/overlay.js')
+        }
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {

@@ -1,20 +1,36 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron'
 
-// Custom APIs for renderer
-const api = {}
-
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  window.electron = electronAPI
-  window.api = api
+function subscribe(channel, callback) {
+  if (typeof callback !== 'function') return () => {}
+  const listener = (_event, payload) => callback(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
 }
+
+const ftEngine = {
+  app: {
+    getServerConfig: () => ipcRenderer.invoke('app:get-server-config'),
+    deleteLocalData: () => ipcRenderer.invoke('app:delete-local-data'),
+    restartForUpdate: () => ipcRenderer.send('app:restart-for-update'),
+    onUpdateAvailable: (callback) => subscribe('app:update-available', callback),
+    onUpdateDownloaded: (callback) => subscribe('app:update-downloaded', callback)
+  },
+  window: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
+    close: () => ipcRenderer.send('window:close'),
+    setContentProtection: (enabled) =>
+      ipcRenderer.send('window:set-content-protection', Boolean(enabled))
+  },
+  shortcuts: {
+    register: (shortcut) => ipcRenderer.invoke('shortcuts:register', shortcut),
+    unregister: () => ipcRenderer.send('shortcuts:unregister'),
+    onTriggered: (callback) => subscribe('shortcuts:triggered', callback)
+  },
+  overlay: {
+    open: (options) => ipcRenderer.send('overlay:open', options),
+    close: () => ipcRenderer.send('overlay:close')
+  }
+}
+
+contextBridge.exposeInMainWorld('ftEngine', ftEngine)

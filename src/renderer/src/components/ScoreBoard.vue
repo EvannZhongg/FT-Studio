@@ -295,6 +295,7 @@ const currentGroupPlayers = computed(() => {
 
 const currentIdx = computed(() => currentGroupPlayers.value.indexOf(store.currentContext.contestantName))
 const isAllDone = computed(() => currentGroupPlayers.value.length > 0 && currentGroupPlayers.value.every(p => store.scoredPlayers.has(p)))
+let removeShortcutListener = () => {}
 
 // 执行快捷键动作
 const executeShortcutAction = () => {
@@ -307,10 +308,11 @@ const executeShortcutAction = () => {
 }
 
 // 封装注册逻辑
-const registerShortcut = (shortcut) => {
-  if (window.electron && window.electron.ipcRenderer && shortcut) {
+const registerShortcut = async (shortcut) => {
+  if (window.ftEngine?.shortcuts && shortcut) {
     console.log('[ScoreBoard] Registering shortcut:', shortcut)
-    window.electron.ipcRenderer.send('register-global-shortcut', shortcut)
+    const result = await window.ftEngine.shortcuts.register(shortcut)
+    if (!result?.ok) console.warn('[ScoreBoard] Shortcut unavailable:', result?.error)
   }
 }
 
@@ -328,11 +330,11 @@ onMounted(async () => {
 
   // 1. 初始注册
   const initialShortcut = store.appSettings.reset_shortcut || "Ctrl+G"
-  registerShortcut(initialShortcut)
+  await registerShortcut(initialShortcut)
 
   // 监听触发
-  if (window.electron && window.electron.ipcRenderer) {
-    window.electron.ipcRenderer.on('global-shortcut-action', executeShortcutAction)
+  if (window.ftEngine?.shortcuts) {
+    removeShortcutListener = window.ftEngine.shortcuts.onTriggered(executeShortcutAction)
   }
 
   window.addEventListener('keydown', handleGlobalKeydown)
@@ -341,18 +343,18 @@ onMounted(async () => {
 // 【新增】监听设置变化，实时更新快捷键
 watch(() => store.appSettings.reset_shortcut, (newVal, oldVal) => {
   if (newVal && newVal !== oldVal) {
-    registerShortcut(newVal)
+    void registerShortcut(newVal)
   }
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
 
-  if (window.electron && window.electron.ipcRenderer) {
+  if (window.ftEngine) {
     // 2. 退出时注销
-    window.electron.ipcRenderer.send('unregister-global-shortcut')
-    window.electron.ipcRenderer.removeAllListeners('global-shortcut-action')
-    window.electron.ipcRenderer.send('close-overlay')
+    window.ftEngine.shortcuts.unregister()
+    removeShortcutListener()
+    window.ftEngine.overlay.close()
   }
 })
 
@@ -532,13 +534,13 @@ const confirmOverlay = async () => {
   let targetBounds = null
   if (selectedTargetWindow.value !== "FULL_SCREEN") { const res = await store.getWindowBounds(selectedTargetWindow.value); if (res.found) targetBounds = res.bounds }
   showWindowSelector.value = false
-  if (window.electron && window.electron.ipcRenderer) {
+  if (window.ftEngine?.overlay) {
     const initialState = {
       referees: JSON.parse(JSON.stringify(store.referees)),
       context: JSON.parse(JSON.stringify(store.currentContext)),
       projectConfig: JSON.parse(JSON.stringify(store.projectConfig))
     }
-    window.electron.ipcRenderer.send('open-overlay', { bounds: targetBounds, initialState: initialState })
+    window.ftEngine.overlay.open({ bounds: targetBounds, initialState: initialState })
   }
 }
 </script>

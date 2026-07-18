@@ -341,8 +341,9 @@ const handleBackgroundClick = () => {
   if (!isDragging && !isResizing) setIgnoreMouse(true)
 }
 
-if (window.electron) {
-  window.electron.ipcRenderer.on('init-overlay-data', (event, data) => {
+let removeInitialDataListener = () => {}
+if (window.ftOverlay) {
+  removeInitialDataListener = window.ftOverlay.onInitialData((data) => {
     if (data.referees) {
       store.referees = data.referees
       initCardPositions()
@@ -498,20 +499,18 @@ onMounted(() => {
   window.addEventListener('mousemove', onDrag)
   window.addEventListener('mouseup', stopDrag)
 
-  if (window.electron) {
-    window.electron.ipcRenderer.send('overlay-ready')
-  }
+  window.ftOverlay?.ready()
 })
 
 onUnmounted(() => {
   window.removeEventListener('mousemove', onDrag)
   window.removeEventListener('mouseup', stopDrag)
   if (resizeObserver) resizeObserver.disconnect()
-  if (window.electron) window.electron.ipcRenderer.removeAllListeners('init-overlay-data')
+  removeInitialDataListener()
 })
 
-const closeOverlay = () => { if (window.electron) window.electron.ipcRenderer.send('close-overlay') }
-const setIgnoreMouse = (ignore) => { if (window.electron) window.electron.ipcRenderer.send('set-ignore-mouse', ignore) }
+const closeOverlay = () => window.ftOverlay?.close()
+const setIgnoreMouse = (ignore) => window.ftOverlay?.setClickThrough(ignore)
 const handleCardLeave = () => {
   clearFontScaling()
   if (!isDragging && !isResizing && !showSettings.value) setIgnoreMouse(true)

@@ -211,28 +211,20 @@ const changeLanguage = (event) => {
 }
 
 const minimizeWindow = () => {
-  if (window.electron && window.electron.ipcRenderer) {
-    window.electron.ipcRenderer.send('window-min')
-  }
+  window.ftEngine?.window.minimize()
 }
 
 // 【新增】最大化/还原函数
 const maximizeWindow = () => {
-  if (window.electron && window.electron.ipcRenderer) {
-    window.electron.ipcRenderer.send('window-max')
-  }
+  window.ftEngine?.window.toggleMaximize()
 }
 
 const closeWindow = () => {
-  if (window.electron && window.electron.ipcRenderer) {
-    window.electron.ipcRenderer.send('window-close')
-  }
+  window.ftEngine?.window.close()
 }
 
 const applyMainContentProtection = (enabled) => {
-  if (window.electron && window.electron.ipcRenderer) {
-    window.electron.ipcRenderer.send('set-main-content-protection', !!enabled)
-  }
+  window.ftEngine?.window.setContentProtection(enabled)
 }
 
 const setObsProtect = (enabled) => {
@@ -249,14 +241,14 @@ const handleDeleteLocalData = async () => {
   const confirmed = window.confirm(t('nav_delete_local_data_confirm'))
   if (!confirmed) return
 
-  if (!window.electron || !window.electron.ipcRenderer) {
+  if (!window.ftEngine?.app) {
     window.alert(t('nav_delete_local_data_fail'))
     return
   }
 
   isDeletingData.value = true
   try {
-    const result = await window.electron.ipcRenderer.invoke('delete-local-data')
+    const result = await window.ftEngine.app.deleteLocalData()
     if (!result?.ok) {
       console.error('Delete local data failed:', result?.failed)
       window.alert(t('nav_delete_local_data_fail'))

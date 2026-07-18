@@ -5,7 +5,15 @@ import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import yaml from 'js-yaml'
 import fs from 'fs'
-import { getBackendEnv, getBackendLaunchConfig, getConfigPath, getDataRoot, isWindows } from './platform'
+import {
+  getBackendEnv,
+  getBackendLaunchConfig,
+  getConfigPath,
+  getDataRoot,
+  isMac,
+  isWindows
+} from './platform'
+import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 
 const { spawn, execSync } = require('child_process')
 const net = require('net')
@@ -182,6 +190,33 @@ function deleteLocalDataFiles() {
   return { deleted, failed, dataRoot: getDataRoot(app) }
 }
 
+function isSender(event, window) {
+  return Boolean(window && !window.isDestroyed() && event.sender === window.webContents)
+}
+
+function assertMainSender(event) {
+  if (!isSender(event, mainWindow)) {
+    throw new Error('IPC_UNAUTHORIZED')
+  }
+}
+
+function rejectUnexpectedSender(event, window, channel) {
+  if (isSender(event, window)) return false
+  console.warn(`[Electron] Blocked unauthorized IPC: ${channel}`)
+  return true
+}
+
+function openAllowedExternalUrl(value) {
+  const url = normalizeExternalUrl(value)
+  if (!url) {
+    console.warn('[Electron] Blocked external URL')
+    return
+  }
+  void shell.openExternal(url).catch((error) => {
+    console.warn('[Electron] Failed to open external URL:', error.message)
+  })
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     title: MAIN_WINDOW_TITLE,
@@ -197,8 +232,10 @@ function createWindow() {
     icon: icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-      webSecurity: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
     }
   })
 
@@ -210,8 +247,12 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openAllowedExternalUrl(details.url)
     return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+    openAllowedExternalUrl(url)
   })
 
   mainWindow.on('close', () => {
@@ -219,7 +260,7 @@ function createWindow() {
       overlayWindow.close()
       overlayWindow = null
     }
-    if (process.platform === 'darwin') {
+    if (isMac) {
       app.quit()
     }
   })
@@ -261,48 +302,58 @@ app.whenReady().then(async () => {
   logToFile('Main window created')
 
   autoUpdater.on('update-available', () => {
-    if (mainWindow) mainWindow.webContents.send('update_available')
+    if (mainWindow) mainWindow.webContents.send('app:update-available')
   })
 
   autoUpdater.on('update-downloaded', () => {
-    if (mainWindow) mainWindow.webContents.send('update_downloaded')
+    if (mainWindow) mainWindow.webContents.send('app:update-downloaded')
   })
 
-  ipcMain.on('restart_app', () => {
+  ipcMain.on('app:restart-for-update', (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'app:restart-for-update')) return
     autoUpdater.quitAndInstall()
   })
 
-  ipcMain.on('register-global-shortcut', (event, shortcut) => {
+  ipcMain.handle('shortcuts:register', (event, shortcut) => {
+    assertMainSender(event)
     globalShortcut.unregisterAll()
 
-    if (!shortcut) return
+    if (typeof shortcut !== 'string' || shortcut.length < 1 || shortcut.length > 64) {
+      return { ok: false, error: 'SHORTCUT_INVALID' }
+    }
 
     try {
       const registered = globalShortcut.register(shortcut, () => {
         console.log('[Electron] Global shortcut triggered:', shortcut)
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('global-shortcut-action')
+          mainWindow.webContents.send('shortcuts:triggered')
         }
       })
 
       if (!registered) {
         console.log('[Electron] Global shortcut registration failed')
+        return { ok: false, error: 'SHORTCUT_UNAVAILABLE' }
       }
+      return { ok: true }
     } catch (error) {
       console.error('[Electron] Error registering shortcut:', error)
+      return { ok: false, error: 'SHORTCUT_INVALID' }
     }
   })
 
-  ipcMain.on('unregister-global-shortcut', () => {
+  ipcMain.on('shortcuts:unregister', (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'shortcuts:unregister')) return
     globalShortcut.unregisterAll()
     console.log('[Electron] Global shortcuts unregistered')
   })
 
-  ipcMain.handle('get-server-config', () => {
+  ipcMain.handle('app:get-server-config', (event) => {
+    assertMainSender(event)
     return appConfig
   })
 
-  ipcMain.handle('delete-local-data', async () => {
+  ipcMain.handle('app:delete-local-data', async (event) => {
+    assertMainSender(event)
     const result = deleteLocalDataFiles()
     if (result.failed.length > 0) {
       return { ok: false, ...result }
@@ -316,13 +367,15 @@ app.whenReady().then(async () => {
     return { ok: true, ...result }
   })
 
-  ipcMain.on('set-main-content-protection', (event, enabled) => {
+  ipcMain.on('window:set-content-protection', (event, enabled) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'window:set-content-protection')) return
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setContentProtection(!!enabled)
     }
   })
 
-  ipcMain.on('window-max', (event) => {
+  ipcMain.on('window:toggle-maximize', (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'window:toggle-maximize')) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       if (win.isMaximized()) {
@@ -333,14 +386,24 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('overlay-ready', (event) => {
+  ipcMain.on('overlay:ready', (event) => {
+    if (rejectUnexpectedSender(event, overlayWindow, 'overlay:ready')) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win && win.initialOverlayData) {
-      win.webContents.send('init-overlay-data', win.initialOverlayData)
+      win.webContents.send('overlay:initial-data', win.initialOverlayData)
     }
   })
 
-  ipcMain.on('open-overlay', (event, { bounds, initialState } = {}) => {
+  ipcMain.on('overlay:open', (event, value) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'overlay:open')) return
+    let bounds
+    let initialState
+    try {
+      ;({ bounds, initialState } = normalizeOverlayOptions(value))
+    } catch (error) {
+      console.warn('[Electron] Rejected overlay options:', error.message)
+      return
+    }
     if (overlayWindow) {
       overlayWindow.focus()
       return
@@ -377,12 +440,16 @@ app.whenReady().then(async () => {
       skipTaskbar: true,
       resizable: true,
       webPreferences: {
-        preload: join(__dirname, '../preload/index.js'),
-        sandbox: false,
-        webSecurity: false
+        preload: join(__dirname, '../preload/overlay.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true
       }
     })
     overlayWindow.setContentProtection(false)
+    overlayWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    overlayWindow.webContents.on('will-navigate', (event) => event.preventDefault())
 
     if (initialState) {
       overlayWindow.initialOverlayData = initialState
@@ -398,7 +465,7 @@ app.whenReady().then(async () => {
 
     overlayWindow.webContents.on('did-finish-load', () => {
       if (initialState) {
-        overlayWindow.webContents.send('init-overlay-data', initialState)
+        overlayWindow.webContents.send('overlay:initial-data', initialState)
       }
     })
 
@@ -410,13 +477,18 @@ app.whenReady().then(async () => {
     })
   })
 
-  ipcMain.on('close-overlay', () => {
+  ipcMain.on('overlay:close', (event) => {
+    if (!isSender(event, mainWindow) && !isSender(event, overlayWindow)) {
+      console.warn('[Electron] Blocked unauthorized IPC: overlay:close')
+      return
+    }
     if (overlayWindow) {
       overlayWindow.close()
     }
   })
 
-  ipcMain.on('set-ignore-mouse', (event, ignore) => {
+  ipcMain.on('overlay:set-click-through', (event, ignore) => {
+    if (rejectUnexpectedSender(event, overlayWindow, 'overlay:set-click-through')) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       if (ignore) {
@@ -428,12 +500,14 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('window-min', (event) => {
+  ipcMain.on('window:minimize', (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'window:minimize')) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.minimize()
   })
 
-  ipcMain.on('window-close', (event) => {
+  ipcMain.on('window:close', (event) => {
+    if (rejectUnexpectedSender(event, mainWindow, 'window:close')) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) win.close()
   })
@@ -449,7 +523,7 @@ app.on('will-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (!isMac) {
     exitPyProc()
     app.quit()
   }
