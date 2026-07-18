@@ -59,3 +59,26 @@ export function resolveContestant(
     .get(sourceKey, groupName, contestantName) as { id: string } | undefined
   return row || null
 }
+
+export function resolveStageContestant(
+  database: DatabaseSync,
+  sourceKey: string,
+  stageId: string,
+  groupName: string,
+  contestantName: string
+): { id: string } | null {
+  const row = database
+    .prepare(
+      `
+      SELECT p.id
+      FROM competitions c
+      JOIN stages s ON s.competition_id = c.id
+      JOIN competition_groups g ON g.stage_id = s.id
+      JOIN contestants p ON p.group_id = g.id
+      WHERE c.id = ? AND s.id = ? AND g.name = ? AND p.name = ?
+      LIMIT 1
+    `
+    )
+    .get(sourceKey, stageId, groupName, contestantName) as { id: string } | undefined
+  return row || null
+}

@@ -4,6 +4,7 @@ import type { SqliteConnection } from '../sqlite/connection.mts'
 
 export interface MatchProgressContext {
   sourceKey: string
+  stageId: string
   groupName: string
   contestantName: string
   attemptNumber: number
@@ -216,14 +217,14 @@ export class MatchProgressRepository {
         JOIN competition_groups g ON g.stage_id = s.id
         JOIN contestants p ON p.group_id = g.id
         JOIN match_sessions ms ON ms.contestant_id = p.id AND ms.attempt_number = ?
-        WHERE c.id = ? AND g.name = ? AND p.name = ?
-        ORDER BY s.position
+        WHERE c.id = ? AND s.id = ? AND g.name = ? AND p.name = ?
         LIMIT 1
       `
       )
       .get(
         context.attemptNumber,
         context.sourceKey,
+        context.stageId,
         context.groupName,
         context.contestantName
       ) as unknown as SessionRow | undefined
@@ -256,6 +257,8 @@ function validateContext(context: MatchProgressContext): void {
     !context ||
     typeof context.sourceKey !== 'string' ||
     !context.sourceKey ||
+    typeof context.stageId !== 'string' ||
+    !context.stageId ||
     typeof context.groupName !== 'string' ||
     !context.groupName ||
     typeof context.contestantName !== 'string' ||

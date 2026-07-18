@@ -86,6 +86,7 @@ function appendEvent(database, sourceKey, values) {
   const systemTime = values.systemTime
   const result = database.appendMatchScoreEvent({
     sourceKey,
+    stageId: values.stageId || database.listStages(sourceKey)[0].id,
     groupName: values.groupName,
     contestantName: values.contestantName,
     attemptNumber: values.attemptNumber ?? 1,

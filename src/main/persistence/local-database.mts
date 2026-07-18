@@ -142,6 +142,7 @@ export class LocalDatabase {
 
   hasMatchContext(
     sourceKey: string,
+    stageId: string,
     groupName: string,
     contestantName: string,
     attemptNumber: number,
@@ -149,6 +150,7 @@ export class LocalDatabase {
   ): boolean {
     return this.competitions.hasMatchContext(
       sourceKey,
+      stageId,
       groupName,
       contestantName,
       attemptNumber,
@@ -182,15 +184,21 @@ export class LocalDatabase {
 
   upsertMediaBinding(
     sourceKey: string,
+    stageId: string,
     groupName: string,
     contestantName: string,
     binding: { provider: string; mediaId: string; canonicalUrl: string }
   ): boolean {
-    return this.matches.upsertMediaBinding(sourceKey, groupName, contestantName, binding)
+    return this.matches.upsertMediaBinding(sourceKey, stageId, groupName, contestantName, binding)
   }
 
-  listScoredContestants(sourceKey: string, groupName: string): string[] {
-    return this.replay.listScoredContestants(sourceKey, groupName)
+  listScoredContestants(
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    attemptNumber: number
+  ): string[] {
+    return this.replay.listScoredContestants(sourceKey, stageId, groupName, attemptNumber)
   }
 
   getReplay(

@@ -35,13 +35,15 @@ function createFixture() {
     mode: 'FREE',
     groups: [group]
   })
+  const stageId = database.listStages(competition.id)[0].id
   const context = (contestantName) => ({
     sourceKey: competition.id,
+    stageId,
     groupName: 'Final',
     contestantName,
     attemptNumber: 1
   })
-  return { database, competition, context }
+  return { database, competition, stageId, context }
 }
 
 function all(database, sql, ...params) {
@@ -70,11 +72,17 @@ test.afterEach(() => {
 })
 
 test('activates, switches and completes sessions with an immutable audit trail', () => {
-  const { database, competition, context } = createFixture()
+  const { database, competition, stageId, context } = createFixture()
   try {
     database.activateMatchSession(context('Alice'), '2026-07-19T01:00:00.000Z')
     database.transitionMatchSession(context('Alice'), context('Bob'), '2026-07-19T01:05:00.000Z')
     database.completeMatchSession(context('Bob'), '2026-07-19T01:10:00.000Z')
+
+    assert.deepEqual(database.listScoredContestants(competition.id, stageId, 'Final', 1), [
+      'Alice',
+      'Bob'
+    ])
+    assert.deepEqual(database.listScoredContestants(competition.id, stageId, 'Final', 2), [])
 
     assert.deepEqual(
       all(

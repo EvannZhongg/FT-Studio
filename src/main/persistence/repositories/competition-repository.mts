@@ -140,16 +140,21 @@ export class CompetitionRepository {
 
   hasMatchContext(
     sourceKey: string,
+    stageId: string,
     groupName: string,
     contestantName: string,
     attemptNumber: number,
     refereeIndexes: number[]
   ): boolean {
     const database = this.connection.requireDatabase()
-    const stage = findFirstStage(database, sourceKey)
+    const stage = database
+      .prepare(
+        `SELECT id, attempts FROM stages
+         WHERE id = ? AND competition_id = ? AND status <> 'completed'`
+      )
+      .get(stageId, sourceKey) as { id: string; attempts: number } | undefined
     if (!stage || attemptNumber < 1 || attemptNumber > stage.attempts) return false
-    const config = this.getConfig(sourceKey)
-    const group = config?.groups.find((value) => value.name === groupName)
+    const group = readStageGroups(database, stage.id).find((value) => value.name === groupName)
     if (!group || !group.players.includes(contestantName)) return false
     const configuredIndexes = new Set(group.referees.map((referee) => referee.index))
     return refereeIndexes.every((index) => configuredIndexes.has(index))

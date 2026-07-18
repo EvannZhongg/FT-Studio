@@ -21,6 +21,9 @@ export const useRefereeStore = defineStore('referee', {
     matchActive: false,
     matchStatus: initialMatchStatus(),
     projectConfig: { name: '', mode: 'FREE', groups: [] },
+    stages: [],
+    activeStageId: '',
+    activeAttemptNumber: 1,
     currentContext: { groupName: '', contestantName: '' },
     appSettings: {
       language: 'zh',
@@ -33,6 +36,13 @@ export const useRefereeStore = defineStore('referee', {
     },
     scoredPlayers: new Set()
   }),
+
+  getters: {
+    activeStage: (state) => state.stages.find((stage) => stage.id === state.activeStageId) || null,
+    activeGroups() {
+      return this.activeStage?.groups || []
+    }
+  },
 
   actions: {
     updateScore(payload) {
@@ -134,6 +144,9 @@ export const useRefereeStore = defineStore('referee', {
     // 【新增】清理本地配置 (用于 New Match)
     clearLocalConfig() {
       this.projectConfig = { name: '', mode: 'FREE', groups: [] }
+      this.stages = []
+      this.activeStageId = ''
+      this.activeAttemptNumber = 1
       this.currentContext = { groupName: '', contestantName: '' }
       this.scoredPlayers = new Set()
       this.referees = {}
@@ -145,6 +158,7 @@ export const useRefereeStore = defineStore('referee', {
       try {
         if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
         this.projectConfig = await window.ftEngine.projects.create(name, mode)
+        await this.fetchStages()
         return { status: 'ok', config: this.projectConfig }
       } catch (e) {
         console.error('Create Project Failed:', e)
@@ -154,6 +168,9 @@ export const useRefereeStore = defineStore('referee', {
 
     // 更新组别信息 (赛事模式编辑完组别后调用)
     async updateGroups(groups) {
+      if (this.activeStageId) {
+        return this.updateActiveStageGroups(groups)
+      }
       try {
         if (!window.ftEngine?.projects) throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
         this.projectConfig = await window.ftEngine.projects.update(this.projectConfig.id, {
@@ -165,6 +182,110 @@ export const useRefereeStore = defineStore('referee', {
         console.error('Update Groups Failed:', e)
         throw e
       }
+    },
+
+    async updateProjectDetails(name, mode, groups = null) {
+      if (!window.ftEngine?.projects || !this.projectConfig.id) {
+        throw new Error('LOCAL_PROJECTS_UNAVAILABLE')
+      }
+      const firstStage = this.stages[0]
+      this.projectConfig = await window.ftEngine.projects.update(this.projectConfig.id, {
+        name,
+        mode,
+        groups: groups || firstStage?.groups || this.projectConfig.groups
+      })
+      return this.projectConfig
+    },
+
+    async fetchStages(competitionId = this.projectConfig.id) {
+      if (!competitionId) {
+        this.stages = []
+        this.activeStageId = ''
+        this.activeAttemptNumber = 1
+        return []
+      }
+      if (!window.ftEngine?.stages) throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      this.stages = await window.ftEngine.stages.list(competitionId)
+      const selected =
+        this.stages.find((stage) => stage.id === this.activeStageId) ||
+        this.stages.find((stage) => stage.status === 'active') ||
+        this.stages[0] ||
+        null
+      this.selectStage(selected?.id || '', this.activeAttemptNumber)
+      return this.stages
+    },
+
+    selectStage(stageId, attemptNumber = 1) {
+      const stage = this.stages.find((item) => item.id === stageId) || null
+      this.activeStageId = stage?.id || ''
+      this.activeAttemptNumber = stage
+        ? Math.min(stage.attempts, Math.max(1, Number(attemptNumber) || 1))
+        : 1
+      if (stage) this.projectConfig.groups = stage.groups
+      return stage
+    },
+
+    async createStage(input) {
+      if (!window.ftEngine?.stages || !this.projectConfig.id) {
+        throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      }
+      const created = await window.ftEngine.stages.create(this.projectConfig.id, input)
+      this.stages.push(created)
+      return created
+    },
+
+    async updateStage(stageId, input) {
+      if (!window.ftEngine?.stages) throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      const updated = await window.ftEngine.stages.update(stageId, input)
+      const index = this.stages.findIndex((stage) => stage.id === stageId)
+      if (index >= 0) this.stages.splice(index, 1, updated)
+      if (this.activeStageId === stageId) this.selectStage(stageId, this.activeAttemptNumber)
+      return updated
+    },
+
+    async updateActiveStageGroups(groups) {
+      const stage = this.activeStage
+      if (!stage) throw new Error('STAGE_NOT_SELECTED')
+      return this.updateStage(stage.id, {
+        name: stage.name,
+        attempts: stage.attempts,
+        groups
+      })
+    },
+
+    async reorderStages(stageIds) {
+      if (!window.ftEngine?.stages || !this.projectConfig.id) {
+        throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      }
+      this.stages = await window.ftEngine.stages.reorder(this.projectConfig.id, stageIds)
+      this.selectStage(this.activeStageId, this.activeAttemptNumber)
+      return this.stages
+    },
+
+    async deleteStage(stageId) {
+      if (!window.ftEngine?.stages) throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      const deleted = await window.ftEngine.stages.delete(stageId)
+      if (deleted) {
+        this.stages = this.stages.filter((stage) => stage.id !== stageId)
+        if (this.activeStageId === stageId) {
+          this.selectStage(this.stages[0]?.id || '', 1)
+        }
+      }
+      return deleted
+    },
+
+    async activateStage(stageId) {
+      if (!window.ftEngine?.stages) throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      const updated = await window.ftEngine.stages.activate(stageId)
+      await this.fetchStages()
+      return updated
+    },
+
+    async completeStage(stageId) {
+      if (!window.ftEngine?.stages) throw new Error('LOCAL_STAGES_UNAVAILABLE')
+      const updated = await window.ftEngine.stages.complete(stageId)
+      await this.fetchStages()
+      return updated
     },
 
     // 设置当前比赛上下文 (切换选手/组别时调用)
@@ -224,9 +345,10 @@ export const useRefereeStore = defineStore('referee', {
         if (window.ftEngine?.match) {
           const result = await window.ftEngine.match.start({
             sourceKey: this.projectConfig.id,
+            stageId: this.activeStageId,
             groupName: this.currentContext.groupName,
             contestantName: this.currentContext.contestantName,
-            attemptNumber: 1,
+            attemptNumber: this.activeAttemptNumber,
             referees: config.referees.map((referee) => ({
               index: referee.index,
               name: referee.name || `Referee ${referee.index}`,
@@ -347,6 +469,7 @@ export const useRefereeStore = defineStore('referee', {
         const config = await window.ftEngine.projects.get(dirName)
         if (!config) return false
         this.projectConfig = config
+        await this.fetchStages(config.id)
         return true
       } catch (e) {
         console.error('Load project failed', e)
@@ -428,7 +551,13 @@ export const useRefereeStore = defineStore('referee', {
         if (!window.ftEngine?.match || !this.projectConfig.id) {
           throw new Error('LOCAL_MATCH_UNAVAILABLE')
         }
-        const scored = await window.ftEngine.match.listScored(this.projectConfig.id, groupName)
+        if (!this.activeStageId) throw new Error('STAGE_NOT_SELECTED')
+        const scored = await window.ftEngine.match.listScored(
+          this.projectConfig.id,
+          this.activeStageId,
+          groupName,
+          this.activeAttemptNumber
+        )
         this.scoredPlayers = new Set(scored)
       } catch (e) {
         console.error('Fetch status failed', e)

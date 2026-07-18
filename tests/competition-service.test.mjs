@@ -74,6 +74,7 @@ test('scores a local competition and locks structure while allowing device rebin
       mode: 'TOURNAMENT',
       groups: [group]
     })
+    const stageId = database.listStages(created.id)[0].id
     const match = new MatchSessionService({
       requestWorker: async (method, params = {}) =>
         method === 'device.connectMany'
@@ -86,6 +87,7 @@ test('scores a local competition and locks structure while allowing device rebin
     })
     await match.start({
       sourceKey: created.id,
+      stageId,
       groupName: 'Final',
       contestantName: 'Alice',
       attemptNumber: 1,

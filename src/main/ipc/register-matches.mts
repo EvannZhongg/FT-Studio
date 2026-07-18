@@ -42,20 +42,34 @@ export function registerMatchIpc(
     return matchSession.setMediaBinding(groupName, contestantName, url)
   })
 
-  ipcMain.handle(IPC_CHANNELS.match.listScored, (event, sourceKey, groupName) => {
-    context.assertMainSender(event)
-    if (
-      typeof sourceKey !== 'string' ||
-      !sourceKey ||
-      sourceKey.length > 256 ||
-      typeof groupName !== 'string' ||
-      !groupName ||
-      groupName.length > 256
-    ) {
-      throw new Error('IPC_INVALID_MATCH_CONTEXT')
+  ipcMain.handle(
+    IPC_CHANNELS.match.listScored,
+    (event, sourceKey, stageId, groupName, attemptNumber) => {
+      context.assertMainSender(event)
+      if (
+        typeof sourceKey !== 'string' ||
+        !sourceKey ||
+        sourceKey.length > 256 ||
+        typeof stageId !== 'string' ||
+        !stageId ||
+        stageId.length > 128 ||
+        typeof groupName !== 'string' ||
+        !groupName ||
+        groupName.length > 256 ||
+        !Number.isSafeInteger(attemptNumber) ||
+        attemptNumber < 1 ||
+        attemptNumber > 20
+      ) {
+        throw new Error('IPC_INVALID_MATCH_CONTEXT')
+      }
+      return requireDatabase(context.getDatabase).listScoredContestants(
+        sourceKey,
+        stageId,
+        groupName,
+        attemptNumber
+      )
     }
-    return requireDatabase(context.getDatabase).listScoredContestants(sourceKey, groupName)
-  })
+  )
 
   ipcMain.handle(IPC_CHANNELS.match.reset, async (event) => {
     context.assertMainSender(event)

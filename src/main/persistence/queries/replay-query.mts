@@ -29,7 +29,12 @@ export class ReplayQuery {
     this.connection = connection
   }
 
-  listScoredContestants(sourceKey: string, groupName: string): string[] {
+  listScoredContestants(
+    sourceKey: string,
+    stageId: string,
+    groupName: string,
+    attemptNumber: number
+  ): string[] {
     const rows = this.connection
       .requireDatabase()
       .prepare(
@@ -40,12 +45,12 @@ export class ReplayQuery {
       JOIN competition_groups g ON g.stage_id = s.id
       JOIN contestants p ON p.group_id = g.id
       JOIN match_sessions ms ON ms.contestant_id = p.id
-      JOIN score_events e ON e.match_session_id = ms.id
-      WHERE c.id = ? AND g.name = ?
+      WHERE c.id = ? AND s.id = ? AND g.name = ?
+        AND ms.attempt_number = ? AND ms.status = 'completed'
       ORDER BY p.position
     `
       )
-      .all(sourceKey, groupName) as Array<{ name: string }>
+      .all(sourceKey, stageId, groupName, attemptNumber) as Array<{ name: string }>
     return rows.map((row) => row.name)
   }
 

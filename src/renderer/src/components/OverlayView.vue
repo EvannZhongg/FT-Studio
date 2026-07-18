@@ -367,6 +367,9 @@ if (window.ftOverlay) {
     if (data.projectConfig) {
       store.projectConfig = data.projectConfig
     }
+    if (data.stages) store.stages = data.stages
+    if (data.activeStageId) store.activeStageId = data.activeStageId
+    if (data.activeAttemptNumber) store.activeAttemptNumber = data.activeAttemptNumber
   })
   removeRefereeUpdateListener = window.ftOverlay.onRefereeUpdated((update) => {
     store.updateScore(update)

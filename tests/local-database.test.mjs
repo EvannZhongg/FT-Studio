@@ -44,7 +44,7 @@ function createConfiguredCompetition(database) {
       }
     ]
   })
-  return competition
+  return { ...competition, stageId: database.listStages(competition.id)[0].id }
 }
 
 test.afterEach(() => {
@@ -124,6 +124,7 @@ test('appends immutable score events idempotently', () => {
     assert.deepEqual(
       database.appendMatchScoreEvent({
         sourceKey: competition.id,
+        stageId: competition.stageId,
         groupName: 'Final',
         contestantName: 'Alice',
         attemptNumber: 1,
@@ -135,6 +136,7 @@ test('appends immutable score events idempotently', () => {
     assert.deepEqual(
       database.appendMatchScoreEvent({
         sourceKey: competition.id,
+        stageId: competition.stageId,
         groupName: 'Final',
         contestantName: 'Alice',
         attemptNumber: 1,
@@ -182,6 +184,7 @@ test('rejects score events outside the configured competition graph', () => {
     assert.deepEqual(
       database.appendMatchScoreEvent({
         sourceKey: competition.id,
+        stageId: competition.stageId,
         groupName: 'Final',
         contestantName: 'Unknown',
         attemptNumber: 1,

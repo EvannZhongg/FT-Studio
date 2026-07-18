@@ -183,6 +183,7 @@ export interface MatchRefereeBinding {
 
 export interface MatchStartInput {
   sourceKey: string
+  stageId: string
   groupName: string
   contestantName: string
   attemptNumber: number
@@ -261,6 +262,9 @@ export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
   projectConfig: Record<string, unknown>
+  stages: CompetitionStageConfig[]
+  activeStageId: string
+  activeAttemptNumber: number
 }
 
 export interface OverlayOpenOptions {
@@ -314,7 +318,12 @@ export interface FtEngineApi {
       contestantName: string,
       url: string
     ) => Promise<YouTubeMediaBinding>
-    listScored: (sourceKey: string, groupName: string) => Promise<string[]>
+    listScored: (
+      sourceKey: string,
+      stageId: string,
+      groupName: string,
+      attemptNumber: number
+    ) => Promise<string[]>
     reset: () => Promise<unknown>
     stop: () => Promise<MatchStopResult>
     invalidate: () => Promise<MatchStopResult>

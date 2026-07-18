@@ -10,7 +10,15 @@
       </div>
 
       <div class="header-section center">
-        <div class="group-label">{{ store.currentContext.groupName || $t('wiz_mode_free') }}</div>
+        <div class="match-context-label">
+          <div class="stage-attempt-label">
+            <Layers3 :size="14" />
+            <span>{{ store.activeStage?.name }}</span>
+            <span class="context-separator">/</span>
+            <span>{{ $t('attempt_label', { number: store.activeAttemptNumber }) }}</span>
+          </div>
+          <div class="group-label">{{ store.currentContext.groupName || $t('wiz_mode_free') }}</div>
+        </div>
 
         <div class="player-navigator">
           <button class="nav-arrow" :disabled="isContextChanging" @click="manualChange(-1)">◀</button>
@@ -238,7 +246,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue' // 引入 watch
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Cpu, Database, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
+import { ArrowLeft, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
 import { normalizeYouTubeUrl } from '../media/youtube'
@@ -311,7 +319,7 @@ const saveVideoBinding = async () => {
 
 const currentGroupPlayers = computed(() => {
   const gName = store.currentContext.groupName
-  const group = store.projectConfig.groups.find(g => g.name === gName)
+  const group = store.activeGroups.find(g => g.name === gName)
   return group ? group.players : []
 })
 
@@ -457,14 +465,14 @@ const finishMatch = () => { showAllDoneDialog.value = false; emit('stop') }
 
 const changePlayer = async (delta) => {
   const groupName = store.currentContext.groupName
-  const group = store.projectConfig.groups.find(g => g.name === groupName)
+  const group = store.activeGroups.find(g => g.name === groupName)
   if (!group || !group.players) return
   const nextIdx = (currentIdx.value === -1 ? 0 : currentIdx.value) + delta
   if (nextIdx >= group.players.length) {
     if (store.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
-      await store.updateGroups(store.projectConfig.groups)
+      await store.updateActiveStageGroups(store.activeGroups)
       await switchContext(newPlayerName)
     }
   } else if (nextIdx < 0) {
@@ -565,7 +573,10 @@ const confirmOverlay = async () => {
     const initialState = {
       referees: JSON.parse(JSON.stringify(store.referees)),
       context: JSON.parse(JSON.stringify(store.currentContext)),
-      projectConfig: JSON.parse(JSON.stringify(store.projectConfig))
+      projectConfig: JSON.parse(JSON.stringify(store.projectConfig)),
+      stages: JSON.parse(JSON.stringify(store.stages)),
+      activeStageId: store.activeStageId,
+      activeAttemptNumber: store.activeAttemptNumber
     }
     window.ftEngine.overlay.open({ bounds: targetBounds, initialState: initialState })
   }
@@ -580,6 +591,9 @@ const confirmOverlay = async () => {
 .header-section.left { width: 120px; }
 .header-section.center { flex: 1; justify-content: center; gap: 15px; min-width: 0; }
 .header-section.right { justify-content: flex-end; gap: 12px; }
+.match-context-label { min-width: 120px; max-width: 220px; padding-right: 15px; border-right: 1px solid #444; overflow: hidden; }
+.stage-attempt-label { display: flex; align-items: center; gap: 5px; color: #8fb9d4; font-size: 0.72rem; white-space: nowrap; overflow: hidden; span { overflow: hidden; text-overflow: ellipsis; } .context-separator { flex: 0 0 auto; color: #666; } }
+.group-label { margin-top: 3px; color: #aaa; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .match-health-bar { min-height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid #34363a; background: #202124; color: #aeb2b8; font-size: 0.75rem; }
 .health-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: #9ea3aa; }
 .health-item.saved, .health-item.ready, .health-item.aligned { color: #6fc596; }

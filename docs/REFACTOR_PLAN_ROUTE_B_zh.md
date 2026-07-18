@@ -16,13 +16,13 @@ Platform Worker 的握手、事件转发、停止和有界自动重启已进入 
 
 App/Shortcut IPC、更新通知以及 activate/will-quit/window-all-closed 生命周期已拆出，`index.js` 不再直接注册 IPC 或 Electron 生命周期事件。
 
-StageService/Repository 已支持 graph 配置、排序、1～20 次尝试以及 draft/active/completed 转换；计分输入显式携带 attemptNumber。MatchProgressRepository 在事务内完成 start、当前完成+下一激活、finish 和 invalidate，并向不可变转换表追加审计。Schema 已切换为 clean v3，不迁移旧数据。
+StageService/Repository 已支持 graph 配置、排序、1～20 次尝试以及 draft/active/completed 转换；Renderer 已接入多 Stage/attempt 配置与运行选择，计分输入显式携带 stageId 和 attemptNumber。MatchProgressRepository 在事务内完成 start、当前完成+下一激活、finish 和 invalidate，并向不可变转换表追加审计。Schema 已切换为 clean v3，不迁移旧数据。
 
 Competition 和设备绑定共享 DTO 已改用稳定 camelCase 字段与领域 ID；`dir_name/project_name/source_key/pri_addr/sec_addr` 已从生产源码删除，不提供兼容别名。
 
 ## 2. P0：补齐赛事领域并拆分 Main
 
-1. Stage、attempt 和 MatchSession 状态事务已在 Main 实现；继续接入 Renderer 多 Stage/attempt 配置选择与作废入口。
+1. Stage、attempt 和 MatchSession 状态事务已在 Main 实现，多 Stage/attempt 配置选择已接入 Renderer；继续补齐现场计分页的作废入口。
 2. 所有 IPC、窗口/Overlay、Worker、更新和应用生命周期已拆出；继续将 `src/main/index.js` 中的数据库/服务装配、本地文件操作和导出对话框收敛到 bootstrap 与明确协作者。
 3. 将 `MatchSessionService` 的设备控制、媒体锚点和状态通知拆为协作者。
 

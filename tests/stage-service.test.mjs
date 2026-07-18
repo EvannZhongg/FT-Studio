@@ -74,7 +74,7 @@ test('configures multiple stages, attempts and stable ordering', () => {
     const final = stages.create(competition.id, {
       name: 'Final',
       attempts: 3,
-      groups: [{ ...group, name: 'Final Group', players: ['Carol'] }]
+      groups: [{ ...group, players: ['Alice'] }]
     })
 
     assert.equal(qualifier.groups[0].players.length, 2)
@@ -116,8 +116,9 @@ test('configures multiple stages, attempts and stable ordering', () => {
     assert.deepEqual(
       database.appendMatchScoreEvent({
         sourceKey: competition.id,
-        groupName: 'Final Group',
-        contestantName: 'Carol',
+        stageId: final.id,
+        groupName: 'Open',
+        contestantName: 'Alice',
         attemptNumber: 3,
         refereeIndex: 1,
         event: {
@@ -137,15 +138,16 @@ test('configures multiple stages, attempts and stable ordering', () => {
       }),
       { status: 'inserted' }
     )
-    assert.equal(
-      queryDatabase(
-        database,
-        `SELECT ms.attempt_number FROM score_events e
-         JOIN match_sessions ms ON ms.id = e.match_session_id WHERE e.event_id = ?`,
-        'final-attempt-3'
-      ).attempt_number,
-      3
+    const storedContext = queryDatabase(
+      database,
+      `SELECT ms.attempt_number, g.stage_id FROM score_events e
+       JOIN match_sessions ms ON ms.id = e.match_session_id
+       JOIN contestants p ON p.id = ms.contestant_id
+       JOIN competition_groups g ON g.id = p.group_id WHERE e.event_id = ?`,
+      'final-attempt-3'
     )
+    assert.equal(storedContext.attempt_number, 3)
+    assert.equal(storedContext.stage_id, final.id)
     assert.equal(stages.list(competition.id)[0].status, 'active')
     assert.equal(
       queryDatabase(
@@ -167,7 +169,8 @@ test('enforces stage and competition lifecycle transitions', () => {
     const active = stages.activate(main.id)
     assert.equal(active.status, 'active')
     assert.equal(
-      queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id).status,
+      queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id)
+        .status,
       'active'
     )
     assert.throws(
@@ -183,7 +186,8 @@ test('enforces stage and competition lifecycle transitions', () => {
     )
     assert.equal(stages.complete(main.id).status, 'completed')
     assert.equal(
-      queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id).status,
+      queryDatabase(database, 'SELECT status FROM competitions WHERE id = ?', competition.id)
+        .status,
       'completed'
     )
   } finally {

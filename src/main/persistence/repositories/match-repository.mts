@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { resolveContestant } from '../sqlite/competition-context.mts'
+import { resolveStageContestant } from '../sqlite/competition-context.mts'
 import { stableDatabaseId } from '../sqlite/ids.mts'
 import type { SqliteConnection } from '../sqlite/connection.mts'
 
@@ -26,6 +26,7 @@ export interface StoredScoreEvent {
 
 export interface MatchScoreEventWrite {
   sourceKey: string
+  stageId: string
   groupName: string
   contestantName: string
   attemptNumber: number
@@ -122,12 +123,19 @@ export class MatchRepository {
 
   upsertMediaBinding(
     sourceKey: string,
+    stageId: string,
     groupName: string,
     contestantName: string,
     binding: { provider: string; mediaId: string; canonicalUrl: string }
   ): boolean {
     const database = this.connection.requireDatabase()
-    const contestant = resolveContestant(database, sourceKey, groupName, contestantName)
+    const contestant = resolveStageContestant(
+      database,
+      sourceKey,
+      stageId,
+      groupName,
+      contestantName
+    )
     if (!contestant) return false
     database
       .prepare(
@@ -198,7 +206,7 @@ export class MatchRepository {
       JOIN contestants p ON p.group_id = g.id
       JOIN match_sessions ms ON ms.contestant_id = p.id AND ms.attempt_number = ?
       JOIN referees r ON r.group_id = g.id AND r.referee_index = ?
-      WHERE c.id = ? AND g.name = ? AND p.name = ?
+      WHERE c.id = ? AND s.id = ? AND g.name = ? AND p.name = ?
         AND c.status NOT IN ('completed', 'archived')
         AND s.status <> 'completed'
         AND ms.status IN ('pending', 'active')
@@ -210,6 +218,7 @@ export class MatchRepository {
         input.attemptNumber,
         input.refereeIndex,
         input.sourceKey,
+        input.stageId,
         input.groupName,
         input.contestantName
       ) as

@@ -22,6 +22,7 @@ export interface MatchRefereeBinding {
 
 export interface MatchStartInput {
   sourceKey: string
+  stageId: string
   groupName: string
   contestantName: string
   attemptNumber: number
@@ -78,6 +79,7 @@ interface MatchSessionDependencies {
   invalidateContext?: (context: MatchPersistenceContext, occurredAt: string) => void
   validateContext?: (
     sourceKey: string,
+    stageId: string,
     groupName: string,
     contestantName: string,
     attemptNumber: number,
@@ -88,6 +90,7 @@ interface MatchSessionDependencies {
   emitStatusUpdate?: (status: MatchStatusUpdate) => void
   upsertMediaBinding?: (
     sourceKey: string,
+    stageId: string,
     groupName: string,
     contestantName: string,
     binding: { provider: string; mediaId: string; canonicalUrl: string }
@@ -99,6 +102,7 @@ interface MatchSessionDependencies {
 
 interface MatchPersistenceContext {
   sourceKey: string
+  stageId: string
   groupName: string
   contestantName: string
   attemptNumber: number
@@ -141,6 +145,7 @@ export class MatchSessionService {
   private errorCode: string | null = null
   private lastSavedAt: string | null = null
   private sourceKey = ''
+  private stageId = ''
   private groupName = ''
   private contestantName = ''
   private attemptNumber = 1
@@ -174,6 +179,7 @@ export class MatchSessionService {
       this.dependencies.validateContext &&
       !this.dependencies.validateContext(
         normalized.sourceKey,
+        normalized.stageId,
         normalized.groupName,
         normalized.contestantName,
         normalized.attemptNumber,
@@ -311,6 +317,7 @@ export class MatchSessionService {
       this.dependencies.validateContext &&
       !this.dependencies.validateContext(
         this.sourceKey,
+        this.stageId,
         groupName,
         contestantName,
         this.attemptNumber,
@@ -332,6 +339,7 @@ export class MatchSessionService {
         this.currentPersistenceContext(),
         {
           sourceKey: this.sourceKey,
+          stageId: this.stageId,
           groupName,
           contestantName,
           attemptNumber: this.attemptNumber
@@ -436,11 +444,17 @@ export class MatchSessionService {
       )
     }
     const saved =
-      this.dependencies.upsertMediaBinding?.(this.sourceKey, groupName, contestantName, {
-        provider: binding.provider,
-        mediaId: binding.video_id,
-        canonicalUrl: binding.canonical_url
-      }) ?? false
+      this.dependencies.upsertMediaBinding?.(
+        this.sourceKey,
+        this.stageId,
+        groupName,
+        contestantName,
+        {
+          provider: binding.provider,
+          mediaId: binding.video_id,
+          canonicalUrl: binding.canonical_url
+        }
+      ) ?? false
     if (!saved) {
       throw new MatchSessionError('MATCH_MEDIA_CONTEXT_NOT_FOUND', 'Media context was not found')
     }
@@ -513,6 +527,7 @@ export class MatchSessionService {
     try {
       result = this.dependencies.persistEvent({
         sourceKey: this.sourceKey,
+        stageId: this.stageId,
         groupName: this.groupName,
         contestantName: this.contestantName,
         attemptNumber: this.attemptNumber,
@@ -561,6 +576,7 @@ export class MatchSessionService {
     this.referees.clear()
     this.connections.clear()
     this.sourceKey = input.sourceKey
+    this.stageId = input.stageId
     this.groupName = input.groupName
     this.contestantName = input.contestantName
     this.attemptNumber = input.attemptNumber
@@ -588,6 +604,7 @@ export class MatchSessionService {
   private currentPersistenceContext(): MatchPersistenceContext {
     return {
       sourceKey: this.sourceKey,
+      stageId: this.stageId,
       groupName: this.groupName,
       contestantName: this.contestantName,
       attemptNumber: this.attemptNumber
@@ -751,7 +768,7 @@ function validateStartInput(input: MatchStartInput): MatchStartInput {
   if (!input || typeof input !== 'object') {
     throw new MatchSessionError('MATCH_CONFIG_INVALID', 'Match config is required')
   }
-  for (const value of [input.sourceKey, input.groupName, input.contestantName]) {
+  for (const value of [input.sourceKey, input.stageId, input.groupName, input.contestantName]) {
     if (typeof value !== 'string' || !value || value.length > 256) {
       throw new MatchSessionError('MATCH_CONFIG_INVALID', 'Match context is invalid')
     }

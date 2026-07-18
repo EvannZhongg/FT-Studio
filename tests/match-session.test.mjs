@@ -81,6 +81,7 @@ function createFixture() {
 
 const startInput = {
   sourceKey: '20260718_120000_Demo',
+  stageId: 'stage-main',
   groupName: 'Final',
   contestantName: 'Alice',
   attemptNumber: 1,
@@ -129,6 +130,7 @@ test('connects bindings and publishes explicit session state', async () => {
     type: 'activate',
     context: {
       sourceKey: startInput.sourceKey,
+      stageId: startInput.stageId,
       groupName: 'Final',
       contestantName: 'Alice',
       attemptNumber: 1
@@ -181,6 +183,7 @@ test('persists an event before publishing its score', async () => {
   })
   assert.deepEqual(fixture.events.at(-1), {
     sourceKey: startInput.sourceKey,
+    stageId: startInput.stageId,
     groupName: 'Final',
     contestantName: 'Alice',
     attemptNumber: 1,
@@ -373,6 +376,7 @@ test('captures a fresh playback anchor and persists media bindings', async () =>
   )
   assert.deepEqual(fixture.mediaBindings[0], [
     startInput.sourceKey,
+    startInput.stageId,
     'Final',
     'Alice',
     {

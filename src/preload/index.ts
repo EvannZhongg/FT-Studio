@@ -128,8 +128,14 @@ const ftEngine = {
     syncPlayback: (playback) => ipcRenderer.invoke(IPC_CHANNELS.match.syncPlayback, playback),
     setMediaBinding: (groupName, contestantName, url) =>
       ipcRenderer.invoke(IPC_CHANNELS.match.setMediaBinding, groupName, contestantName, url),
-    listScored: (sourceKey, groupName) =>
-      ipcRenderer.invoke(IPC_CHANNELS.match.listScored, sourceKey, groupName),
+    listScored: (sourceKey, stageId, groupName, attemptNumber) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.match.listScored,
+        sourceKey,
+        stageId,
+        groupName,
+        attemptNumber
+      ),
     reset: () => ipcRenderer.invoke(IPC_CHANNELS.match.reset),
     stop: () => ipcRenderer.invoke(IPC_CHANNELS.match.stop),
     invalidate: () => ipcRenderer.invoke(IPC_CHANNELS.match.invalidate),
