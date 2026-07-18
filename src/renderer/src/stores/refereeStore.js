@@ -308,7 +308,7 @@ export const useRefereeStore = defineStore('referee', {
       try {
         const res = await axios.post(`${this.apiBase}/api/window/bounds`, {title})
         return res.data
-      } catch (e) {
+      } catch {
         return {found: false}
       }
     },
@@ -346,6 +346,41 @@ export const useRefereeStore = defineStore('referee', {
         return res.data
       } catch (e) {
         console.error("Fetch report failed", e)
+        return null
+      }
+    },
+
+    async saveMediaBinding(groupName, contestantName, url) {
+      const res = await axios.post(`${this.apiBase}/api/project/media`, {
+        group: groupName,
+        contestant: contestantName,
+        url
+      })
+      if (res.data.status !== 'ok') throw new Error(res.data.msg || 'Unable to save video')
+      if (!this.projectConfig.media) this.projectConfig.media = {}
+      if (!this.projectConfig.media[groupName]) this.projectConfig.media[groupName] = {}
+      this.projectConfig.media[groupName][contestantName] = res.data.binding
+      return res.data.binding
+    },
+
+    async syncMediaPlayback(playback) {
+      try {
+        await axios.post(`${this.apiBase}/api/media/playback/sync`, playback)
+      } catch (e) {
+        console.debug('Playback sync failed', e)
+      }
+    },
+
+    async fetchReplayData(dirName, groupName, contestantName) {
+      try {
+        const res = await axios.post(`${this.apiBase}/api/project/replay`, {
+          dir_name: dirName,
+          group: groupName,
+          contestant: contestantName
+        })
+        return res.data.status === 'ok' ? res.data : null
+      } catch (e) {
+        console.error('Fetch replay failed', e)
         return null
       }
     },

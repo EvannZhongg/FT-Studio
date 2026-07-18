@@ -30,6 +30,11 @@
         :projectDir="targetProjectDir"
         @back="returnToHome('history')"
       />
+
+      <ReplayView
+        v-else-if="currentView === 'replay'"
+        @back="returnToHome('default')"
+      />
     </div>
   </div>
 </template>
@@ -42,6 +47,7 @@ import SetupWizard from './components/SetupWizard.vue'
 import ScoreBoard from './components/ScoreBoard.vue'
 import OverlayView from './components/OverlayView.vue'
 import ReportView from './components/ReportView.vue'
+import ReplayView from './components/ReplayView.vue'
 import { useRefereeStore } from './stores/refereeStore'
 
 const currentView = ref('home')

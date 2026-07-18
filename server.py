@@ -2,8 +2,10 @@ import asyncio
 import time
 import struct
 import threading
+import uuid
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
+from datetime import datetime
 from fastapi.responses import StreamingResponse
 import json
 import os
@@ -22,7 +24,8 @@ from utils.app_settings import app_settings
 from utils.exporter import ExportManager
 from utils.platform import get_ble_heartbeat_config, should_enable_ble_heartbeat
 from utils.runtime import get_config_path
-from utils.storage import storage_manager
+from utils.media import MediaCapture, normalize_youtube_url, playback_anchors
+from utils.storage import ScoreEventSnapshot, storage_manager
 
 SERVICE_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
 CHARACTERISTIC_UUID = "025018d0-6951-4a81-de4f-453d8dae9128"
@@ -875,30 +878,40 @@ class HeadlessReferee:
     self.status[role] = status
     self._broadcast_update("status_update")
 
-  def _schedule_record_log(self, role, event_type, ble_timestamp):
+  def _schedule_record_log(self, snapshot):
+    if snapshot is None:
+      return
     if _main_loop is None:
-      self._record_log(role, event_type, ble_timestamp)
+      storage_manager.log_event(snapshot)
       return
 
     def runner():
-      asyncio.create_task(asyncio.to_thread(self._record_log, role, event_type, ble_timestamp))
+      asyncio.create_task(asyncio.to_thread(storage_manager.log_event, snapshot))
 
     _main_loop.call_soon_threadsafe(runner)
 
   def _on_pri_data(self, cur, typ, p, m, ts):
     started_at = time.perf_counter() if DEBUG_SCORE_LATENCY else None
+    arrived_monotonic = time.monotonic()
+    system_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     self.pri_cache = [p, m]
     self._update_score_state()
-    self._schedule_record_log("PRIMARY", typ, ts)
+    self._schedule_record_log(self._capture_record_snapshot(
+      "PRIMARY", typ, ts, arrived_monotonic, system_time
+    ))
     self._broadcast_update("score_update")
     if DEBUG_SCORE_LATENCY:
       print(f"[Score] pri_data done in {(time.perf_counter() - started_at) * 1000:.1f} ms")
 
   def _on_sec_data(self, cur, typ, p, m, ts):
     started_at = time.perf_counter() if DEBUG_SCORE_LATENCY else None
+    arrived_monotonic = time.monotonic()
+    system_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     self.sec_cache = [p, m]
     self._update_score_state()
-    self._schedule_record_log("SECONDARY", typ, ts)
+    self._schedule_record_log(self._capture_record_snapshot(
+      "SECONDARY", typ, ts, arrived_monotonic, system_time
+    ))
     self._broadcast_update("score_update")
     if DEBUG_SCORE_LATENCY:
       print(f"[Score] sec_data done in {(time.perf_counter() - started_at) * 1000:.1f} ms")
@@ -923,34 +936,59 @@ class HeadlessReferee:
         "penalty": major_penalty
       }
 
-  def _record_log(self, role, event_type, ble_timestamp):
+  def _capture_record_snapshot(self, role, event_type, ble_timestamp, arrived_monotonic, system_time):
     group = match_state.get("current_group")
     contestant = match_state.get("current_contestant")
 
     if not contestant or contestant == "Unknown_Player":
-      return
+      return None
 
     config = match_state.get("config") or {}
     mode = config.get("mode", "FREE")
     is_zero_score = self.score['total'] == 0 and self.score['plus'] == 0 and self.score['minus'] == 0
 
     if mode == 'FREE' and is_zero_score:
-      return
+      return None
 
-    event_details = {
-      "role": role,
-      "type": event_type,
-      "timestamp": ble_timestamp
-    }
+    binding = storage_manager.get_media_binding(config, group, contestant)
+    if not binding:
+      media = MediaCapture(sync_status="no_media")
+    else:
+      media = playback_anchors.capture(group, contestant, arrived_monotonic)
+      expected_video_id = binding.get("video_id", "")
+      if media.video_id != expected_video_id:
+        media = MediaCapture(
+          provider="youtube",
+          video_id=expected_video_id,
+          sync_status="media_mismatch" if media.video_id else media.sync_status,
+        )
 
-    storage_manager.log_data(group, self.index, contestant, self.score, event_details)
+    score = dict(self.score)
+    return ScoreEventSnapshot(
+      group_name=group,
+      ref_index=self.index,
+      contestant_name=contestant,
+      system_time=system_time,
+      ble_timestamp=ble_timestamp,
+      device_role=role,
+      current_total=score.get("total", 0),
+      event_type=event_type,
+      total_plus=score.get("plus", 0),
+      total_minus=score.get("minus", 0),
+      major_penalty=score.get("penalty", 0),
+      event_id=str(uuid.uuid4()),
+      media_provider=media.provider,
+      media_id=media.video_id,
+      media_time_ms=media.video_time_ms,
+      media_sync_status=media.sync_status,
+    )
 
   def _broadcast_update(self, msg_type):
     payload = {
       "index": self.index,
       "name": self.name,
-      "score": self.score,
-      "status": self.status
+      "score": dict(self.score),
+      "status": dict(self.status)
     }
     asyncio.create_task(self.broadcast({"type": msg_type, "payload": payload}))
 
@@ -1119,6 +1157,7 @@ async def teardown():
     await asyncio.gather(*tasks, return_exceptions=True)
 
   referees.clear()
+  playback_anchors.clear()
   await scanner_manager.start()
   return {"status": "ok"}
 
@@ -1186,6 +1225,7 @@ async def rename_devices(data: dict):
 async def create_project(data: dict):
   config = storage_manager.create_project(data.get("name"), data.get("mode"))
   match_state["config"] = config
+  playback_anchors.clear()
   return {"status": "ok", "config": config}
 
 
@@ -1224,9 +1264,39 @@ async def set_context(data: dict):
   return {"status": "ok"}
 
 
+@app.post("/api/project/media")
+async def save_project_media(data: dict):
+  config = match_state.get("config") or {}
+  group = str(data.get("group") or "").strip()
+  contestant = str(data.get("contestant") or "").strip()
+  if not config or not storage_manager.current_project_path:
+    return {"status": "error", "msg": "No active project"}
+  if not group or not contestant:
+    return {"status": "error", "msg": "Group and contestant are required"}
+  try:
+    binding = normalize_youtube_url(data.get("url"))
+  except ValueError as exc:
+    return {"status": "error", "msg": str(exc)}
+
+  storage_manager.save_media_binding(config, group, contestant, binding)
+  return {"status": "ok", "binding": binding}
+
+
+@app.post("/api/media/playback/sync")
+async def sync_media_playback(data: dict):
+  try:
+    anchor = playback_anchors.update(data)
+  except ValueError as exc:
+    return {"status": "error", "msg": str(exc)}
+  return {"status": "ok", "received_monotonic": anchor.received_monotonic}
+
+
 @app.get("/api/project/current")
 async def get_current_project():
-  return match_state["config"]
+  config = match_state["config"]
+  if config:
+    config.setdefault("media", {})
+  return config
 
 
 @app.get("/api/windows")
@@ -1272,6 +1342,7 @@ async def load_project(data: dict):
 
   if config:
     match_state["config"] = config
+    playback_anchors.clear()
     groups = config.get("groups", [])
     if groups:
       match_state["current_group"] = groups[0].get("name", "Unknown")
@@ -1289,6 +1360,21 @@ async def get_project_report(data: dict):
     config = storage_manager.load_project_config(dir_name)
     scores = storage_manager.load_report_data(dir_name)
     return {"status": "ok", "config": config, "scores": scores}
+
+
+@app.post("/api/project/replay")
+async def get_project_replay(data: dict):
+    dir_name = data.get("dir_name")
+    group = str(data.get("group") or "").strip()
+    contestant = str(data.get("contestant") or "").strip()
+    if not dir_name or not group or not contestant:
+      return {"status": "error", "msg": "Project, group and contestant are required"}
+    replay = await asyncio.to_thread(
+      storage_manager.load_replay_data, dir_name, group, contestant
+    )
+    if replay is None:
+      return {"status": "error", "msg": "Project not found"}
+    return {"status": "ok", **replay}
 
 
 @app.post("/api/group/status")

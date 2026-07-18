@@ -27,6 +27,17 @@
           <span class="card-desc">View past records</span>
         </div>
       </div>
+
+      <div class="card replay" @click="emit('navigate', 'replay')">
+        <div class="card-bg"></div>
+        <div class="icon-circle">
+          <Clapperboard :size="36" stroke-width="2" />
+        </div>
+        <div class="card-content">
+          <h3>{{ $t('btn_video_replay') }}</h3>
+          <span class="card-desc">{{ $t('home_video_replay_desc') }}</span>
+        </div>
+      </div>
     </div>
 
     <div v-if="showHistoryModal" class="modal-overlay" @click.self="closeHistory">
@@ -73,7 +84,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Plus, History, Trash2 } from 'lucide-vue-next'
+import { Clapperboard, Plus, History, Trash2 } from 'lucide-vue-next'
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
 
@@ -146,9 +157,9 @@ const cancelDelete = () => { showDeleteModal.value = false; projectToDelete.valu
 /* 卡片网格 */
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 30px; /* 减小间距，防止过宽 */
-  max-width: 720px; /* 【核心修复】减小最大宽度，避免贴边 */
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px; /* 减小间距，防止过宽 */
+  max-width: 820px; /* 【核心修复】减小最大宽度，避免贴边 */
   width: 100%;
   margin: 0 auto; /* 确保网格自身居中 */
 }
@@ -159,7 +170,7 @@ const cancelDelete = () => { showDeleteModal.value = false; projectToDelete.valu
   background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
+  border-radius: 8px;
   padding: 30px 20px; /* 调整内边距 */
   cursor: pointer;
   transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -183,6 +194,7 @@ const cancelDelete = () => { showDeleteModal.value = false; projectToDelete.valu
 
 .card.new-match:hover .icon-circle { color: #4ade80; background: rgba(74, 222, 128, 0.15); box-shadow: 0 0 30px rgba(74, 222, 128, 0.3); }
 .card.history:hover .icon-circle { color: #facc15; background: rgba(250, 204, 21, 0.15); box-shadow: 0 0 30px rgba(250, 204, 21, 0.3); }
+.card.replay:hover .icon-circle { color: #67b7ff; background: rgba(103, 183, 255, 0.15); box-shadow: 0 0 30px rgba(103, 183, 255, 0.25); }
 
 /* 图标圆圈 */
 .icon-circle {
@@ -276,4 +288,9 @@ const cancelDelete = () => { showDeleteModal.value = false; projectToDelete.valu
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 720px) {
+  .cards-grid { grid-template-columns: 1fr; }
+  .home-view { overflow-y: auto; height: 100%; }
+}
 </style>

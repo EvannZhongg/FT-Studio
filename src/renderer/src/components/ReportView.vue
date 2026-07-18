@@ -197,7 +197,7 @@ import { useI18n } from 'vue-i18n'
 import { Info } from 'lucide-vue-next'
 
 const props = defineProps(['projectDir'])
-const emit = defineEmits(['back'])
+defineEmits(['back'])
 const store = useRefereeStore()
 const { t } = useI18n()
 

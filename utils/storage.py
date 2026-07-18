@@ -3,9 +3,40 @@ import csv
 import json
 from datetime import datetime
 import shutil
+import tempfile
+import threading
+import uuid
+from dataclasses import dataclass
+from typing import Optional
 from utils.runtime import get_data_root
 
 BASE_DIR = os.path.join(get_data_root(), "match_data")
+
+CSV_HEADERS = [
+  "SystemTime", "BLE_Timestamp", "DeviceRole",
+  "CurrentTotal", "EventType", "TotalPlus", "TotalMinus", "MajorPenalty",
+  "EventId", "MediaProvider", "MediaId", "MediaTimeMs", "MediaSyncStatus"
+]
+
+
+@dataclass(frozen=True)
+class ScoreEventSnapshot:
+  group_name: str
+  ref_index: int
+  contestant_name: str
+  system_time: str
+  ble_timestamp: int
+  device_role: str
+  current_total: int
+  event_type: int
+  total_plus: int
+  total_minus: int
+  major_penalty: int
+  event_id: str = ""
+  media_provider: str = ""
+  media_id: str = ""
+  media_time_ms: Optional[int] = None
+  media_sync_status: str = "not_ready"
 
 
 class StorageManager:
@@ -16,6 +47,7 @@ class StorageManager:
     if not os.path.exists(BASE_DIR):
       os.makedirs(BASE_DIR)
     self.current_project_path = None
+    self._write_lock = threading.RLock()
 
   def create_project(self, project_name, mode):
     """创建项目文件夹"""
@@ -30,7 +62,8 @@ class StorageManager:
       "project_name": project_name,
       "mode": mode,
       "created_at": timestamp,
-      "groups": []
+      "groups": [],
+      "media": {}
     }
     self.save_config(config)
     return config
@@ -38,8 +71,15 @@ class StorageManager:
   def save_config(self, config_data):
     if not self.current_project_path: return
     path = os.path.join(self.current_project_path, "config.json")
-    with open(path, 'w', encoding='utf-8') as f:
-      json.dump(config_data, f, ensure_ascii=False, indent=2)
+    with self._write_lock:
+      fd, temp_path = tempfile.mkstemp(prefix="config_", suffix=".tmp", dir=self.current_project_path)
+      try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+          json.dump(config_data, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, path)
+      finally:
+        if os.path.exists(temp_path):
+          os.remove(temp_path)
 
   def _get_group_dir(self, group_name):
     """获取(并创建)组别子文件夹"""
@@ -69,41 +109,80 @@ class StorageManager:
     """
     记录数据到单独的 CSV
     """
-    if not self.current_project_path: return
+    snapshot = ScoreEventSnapshot(
+      group_name=group_name,
+      ref_index=ref_index,
+      contestant_name=contestant_name,
+      system_time=event_details.get('system_time') or datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+      ble_timestamp=event_details.get('timestamp', 0),
+      device_role=event_details.get('role', 'UNKNOWN'),
+      current_total=score_data.get('total', 0),
+      event_type=event_details.get('type', 0),
+      total_plus=score_data.get('plus', 0),
+      total_minus=score_data.get('minus', 0),
+      major_penalty=score_data.get('penalty', 0),
+      event_id=event_details.get('event_id') or str(uuid.uuid4()),
+      media_provider=event_details.get('media_provider', ''),
+      media_id=event_details.get('media_id', ''),
+      media_time_ms=event_details.get('media_time_ms'),
+      media_sync_status=event_details.get('media_sync_status', 'not_ready'),
+    )
+    self.log_event(snapshot)
 
-    filepath = self._get_contestant_filepath(group_name, contestant_name, ref_index)
-    if not filepath: return
-
-    # 如果文件不存在，写入表头
-    if not os.path.exists(filepath):
-      try:
-        with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-          writer = csv.writer(f)
-          # 【修改】增加 MajorPenalty 列
-          writer.writerow([
-            "SystemTime", "BLE_Timestamp", "DeviceRole",
-            "CurrentTotal", "EventType", "TotalPlus", "TotalMinus", "MajorPenalty"
-          ])
-      except Exception as e:
-        print(f"[Storage Init Error] {e}")
+  def _upgrade_csv_header(self, filepath):
+    with open(filepath, 'r', newline='', encoding='utf-8-sig') as source:
+      reader = csv.DictReader(source)
+      current_headers = reader.fieldnames or []
+      if current_headers == CSV_HEADERS:
         return
+      rows = list(reader)
 
-    system_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-    # 追加写入数据
+    fd, temp_path = tempfile.mkstemp(prefix="score_", suffix=".tmp", dir=os.path.dirname(filepath))
     try:
-      with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-          system_time,
-          event_details.get('timestamp', 0),
-          event_details.get('role', 'UNKNOWN'),
-          score_data.get('total', 0),
-          event_details.get('type', 0),
-          score_data.get('plus', 0),
-          score_data.get('minus', 0),
-          score_data.get('penalty', 0)  # 【新增】写入 penalty 数据
-        ])
+      with os.fdopen(fd, 'w', newline='', encoding='utf-8-sig') as target:
+        writer = csv.DictWriter(target, fieldnames=CSV_HEADERS)
+        writer.writeheader()
+        for row in rows:
+          writer.writerow({header: row.get(header, '') for header in CSV_HEADERS})
+      os.replace(temp_path, filepath)
+    finally:
+      if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+  def log_event(self, snapshot: ScoreEventSnapshot):
+    if not self.current_project_path:
+      return
+    filepath = self._get_contestant_filepath(
+      snapshot.group_name, snapshot.contestant_name, snapshot.ref_index
+    )
+    if not filepath:
+      return
+
+    row = {
+      "SystemTime": snapshot.system_time,
+      "BLE_Timestamp": snapshot.ble_timestamp,
+      "DeviceRole": snapshot.device_role,
+      "CurrentTotal": snapshot.current_total,
+      "EventType": snapshot.event_type,
+      "TotalPlus": snapshot.total_plus,
+      "TotalMinus": snapshot.total_minus,
+      "MajorPenalty": snapshot.major_penalty,
+      "EventId": snapshot.event_id or str(uuid.uuid4()),
+      "MediaProvider": snapshot.media_provider,
+      "MediaId": snapshot.media_id,
+      "MediaTimeMs": '' if snapshot.media_time_ms is None else snapshot.media_time_ms,
+      "MediaSyncStatus": snapshot.media_sync_status,
+    }
+    try:
+      with self._write_lock:
+        if os.path.exists(filepath):
+          self._upgrade_csv_header(filepath)
+        else:
+          with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+            csv.DictWriter(f, fieldnames=CSV_HEADERS).writeheader()
+        with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
+          writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+          writer.writerow(row)
     except Exception as e:
       print(f"[Storage Log Error] {e}")
 
@@ -125,14 +204,42 @@ class StorageManager:
           pass
     return projects
 
-  def load_project_config(self, dir_name):
+  def _get_project_path(self, dir_name):
+    if not dir_name or os.path.basename(dir_name) != dir_name:
+      return None
     path = os.path.join(BASE_DIR, dir_name)
+    if not os.path.isdir(path):
+      return None
+    return path
+
+  def read_project_config(self, dir_name):
+    path = self._get_project_path(dir_name)
+    if not path:
+      return None
     config_path = os.path.join(path, "config.json")
-    if os.path.exists(config_path):
+    if not os.path.exists(config_path):
+      return None
+    with open(config_path, 'r', encoding='utf-8') as f:
+      config = json.load(f)
+    config.setdefault("media", {})
+    return config
+
+  def load_project_config(self, dir_name):
+    path = self._get_project_path(dir_name)
+    config = self.read_project_config(dir_name)
+    if config and path:
       self.current_project_path = path
-      with open(config_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-    return None
+    return config
+
+  def save_media_binding(self, config, group_name, contestant_name, binding):
+    media = config.setdefault("media", {})
+    media.setdefault(group_name, {})[contestant_name] = dict(binding)
+    self.save_config(config)
+    return media[group_name][contestant_name]
+
+  @staticmethod
+  def get_media_binding(config, group_name, contestant_name):
+    return ((config or {}).get("media") or {}).get(group_name, {}).get(contestant_name)
 
   def load_report_data(self, dir_name):
     """解析 CSV 生成报表数据"""
@@ -188,6 +295,79 @@ class StorageManager:
 
     return report
 
+  def load_replay_data(self, dir_name, group_name, contestant_name):
+    project_path = self._get_project_path(dir_name)
+    config = self.read_project_config(dir_name)
+    if not project_path or not config:
+      return None
+
+    safe_group = "".join([c for c in group_name if c.isalnum() or c in (' ', '_', '-')]).strip()
+    safe_contestant = "".join([c for c in contestant_name if c.isalnum() or c in (' ', '_', '-')]).strip()
+    group_path = os.path.join(project_path, safe_group or "Default_Group")
+    if not os.path.isdir(group_path):
+      return {"config": config, "binding": self.get_media_binding(config, group_name, contestant_name), "events": []}
+
+    referee_names = {}
+    for group in config.get("groups", []):
+      if group.get("name") == group_name:
+        referee_names = {
+          int(referee.get("index")): referee.get("name") or f"Referee {referee.get('index')}"
+          for referee in group.get("referees", []) if referee.get("index") is not None
+        }
+        break
+
+    events = []
+    prefix = f"{safe_contestant or 'Unknown_Player'}_Ref"
+    for filename in os.listdir(group_path):
+      if not filename.startswith(prefix) or not filename.endswith(".csv"):
+        continue
+      try:
+        ref_index = int(filename[:-4].rsplit("_Ref", 1)[1])
+      except (ValueError, IndexError):
+        continue
+
+      previous = {"plus": 0, "minus": 0, "penalty": 0}
+      with open(os.path.join(group_path, filename), 'r', encoding='utf-8-sig') as f:
+        for row_index, row in enumerate(csv.DictReader(f)):
+          try:
+            plus = int(row.get("TotalPlus") or 0)
+            minus = int(row.get("TotalMinus") or 0)
+            penalty = int(row.get("MajorPenalty") or row.get("penalty") or 0)
+            total = int(row.get("CurrentTotal") or 0)
+            media_time_raw = row.get("MediaTimeMs")
+            media_time_ms = int(media_time_raw) if media_time_raw not in (None, "") else None
+          except (TypeError, ValueError):
+            continue
+
+          events.append({
+            "event_id": row.get("EventId") or f"ref{ref_index}-row{row_index}",
+            "system_time": row.get("SystemTime") or "",
+            "ble_timestamp": int(row.get("BLE_Timestamp") or 0),
+            "referee_index": ref_index,
+            "referee_name": referee_names.get(ref_index, f"Referee {ref_index}"),
+            "device_role": row.get("DeviceRole") or "UNKNOWN",
+            "event_type": int(row.get("EventType") or 0),
+            "delta_plus": plus - previous["plus"],
+            "delta_minus": minus - previous["minus"],
+            "delta_penalty": penalty - previous["penalty"],
+            "total_plus": plus,
+            "total_minus": minus,
+            "major_penalty": penalty,
+            "current_total": total,
+            "media_provider": row.get("MediaProvider") or "",
+            "media_id": row.get("MediaId") or "",
+            "media_time_ms": media_time_ms,
+            "media_sync_status": row.get("MediaSyncStatus") or ("aligned" if media_time_ms is not None else "not_ready"),
+          })
+          previous = {"plus": plus, "minus": minus, "penalty": penalty}
+
+    events.sort(key=lambda event: (event["system_time"], event["referee_index"], event["event_id"]))
+    return {
+      "config": config,
+      "binding": self.get_media_binding(config, group_name, contestant_name),
+      "events": events,
+    }
+
   def get_scored_players(self, group_name):
     """获取已打分选手"""
     if not self.current_project_path: return []
@@ -211,9 +391,8 @@ class StorageManager:
 
   def delete_project(self, dir_name):
     if not dir_name: return False
-    safe_name = os.path.basename(dir_name)
-    project_path = os.path.join(BASE_DIR, safe_name)
-    if os.path.exists(project_path) and os.path.isdir(project_path):
+    project_path = self._get_project_path(dir_name)
+    if project_path and os.path.exists(project_path):
       try:
         shutil.rmtree(project_path)
         return True

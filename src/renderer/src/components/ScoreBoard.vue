@@ -45,8 +45,8 @@
 
         <div class="divider-vertical"></div>
 
-        <button class="btn-tool btn-overlay" @click="openWindowSelector">
-          <Monitor :size="16" />
+        <button class="btn-tool btn-overlay" @click="openPresentationSelector()">
+          <PictureInPicture2 :size="16" />
           <span>{{ $t('sb_btn_overlay') }}</span>
         </button>
 
@@ -68,7 +68,43 @@
       </div>
     </div>
 
-    <div class="panels-container">
+    <div v-if="showVideoWorkspace" class="video-workspace">
+      <div class="video-workspace-toolbar">
+        <button class="workspace-icon-button" :title="$t('media_exit_player')" @click="showVideoWorkspace = false">
+          <ArrowLeft :size="17" />
+        </button>
+        <div class="workspace-title">
+          <Youtube :size="18" />
+          <span>{{ $t('media_video_scoring') }}</span>
+        </div>
+        <button class="workspace-icon-button" :title="$t('media_change_video')" @click="openPresentationSelector('video')">
+          <Link2 :size="17" />
+        </button>
+      </div>
+      <div class="video-score-layout">
+        <section class="workspace-player">
+          <YouTubePlayer
+            :video-id="currentVideoId"
+            :group="store.currentContext.groupName"
+            :contestant="store.currentContext.contestantName"
+            :empty-text="$t('media_empty')"
+            :open-text="$t('media_open_browser')"
+            sync-enabled
+            @sync="store.syncMediaPlayback"
+          />
+          <button v-if="!currentVideoId" class="bind-video-command" @click="openPresentationSelector('video')">
+            <Link2 :size="16" />
+            {{ $t('media_bind_video') }}
+          </button>
+        </section>
+        <ScoreOverlayPanel
+          :referees="store.referees"
+          :contestant="store.currentContext.contestantName"
+        />
+      </div>
+    </div>
+
+    <div v-else class="panels-container">
       <div v-for="(ref, refKey) in store.referees" :key="refKey" class="score-card">
         <div class="card-top">
           <div class="ref-name">{{ ref.name }}</div>
@@ -83,23 +119,54 @@
           <span class="plus">+{{ ref.plus }}</span> / <span class="minus">-{{ ref.minus }}</span>
 
           <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
-             / <span class="penalty-text">-{{ ref.penalty }}</span>
+            / <span class="penalty-text">-{{ ref.penalty }}</span>
           </template>
         </div>
       </div>
     </div>
 
     <div v-if="showWindowSelector" class="modal-overlay">
-       <div class="modal-content">
-        <h3>{{ $t('sb_title_sel_win') }}</h3>
-        <select v-model="selectedTargetWindow" class="win-select">
+      <div class="modal-content presentation-dialog">
+        <h3>{{ $t('media_choose_presentation') }}</h3>
+        <div class="presentation-modes">
+          <button :class="{ active: presentationMode === 'window' }" @click="selectPresentationMode('window')">
+            <Monitor :size="18" />
+            <span>{{ $t('media_window_overlay') }}</span>
+          </button>
+          <button :class="{ active: presentationMode === 'video' }" @click="selectPresentationMode('video')">
+            <Youtube :size="18" />
+            <span>{{ $t('media_youtube_scoring') }}</span>
+          </button>
+        </div>
+
+        <select v-if="presentationMode === 'window'" v-model="selectedTargetWindow" class="win-select">
           <option value="" disabled>{{ $t('sb_opt_sel_app') }}</option>
           <option value="FULL_SCREEN">{{ $t('sb_opt_full_screen') }}</option>
           <option v-for="w in windowList" :key="w" :value="w">{{ w }}</option>
         </select>
+
+        <div v-else class="video-binding-form">
+          <label>{{ store.currentContext.contestantName }}</label>
+          <input
+            v-model="videoUrl"
+            type="url"
+            :placeholder="$t('media_url_placeholder')"
+            :disabled="!store.currentContext.contestantName"
+            @keyup.enter="confirmPresentation"
+          />
+          <span v-if="mediaSaved" class="media-saved">{{ $t('media_saved') }}</span>
+          <span v-if="mediaError" class="media-error">{{ mediaError }}</span>
+        </div>
+
         <div class="modal-actions">
           <button class="btn-cancel" @click="showWindowSelector = false">{{ $t('btn_cancel') }}</button>
-          <button class="btn-confirm" @click="confirmOverlay">{{ $t('sb_btn_start_overlay') }}</button>
+          <button
+            class="btn-confirm"
+            :disabled="savingMedia || !canConfirmPresentation"
+            @click="confirmPresentation"
+          >
+            {{ presentationMode === 'video' ? $t('media_enter_player') : $t('sb_btn_start_overlay') }}
+          </button>
         </div>
       </div>
     </div>
@@ -151,7 +218,10 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue' // 引入 watch
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Zap, Monitor, RotateCcw } from 'lucide-vue-next'
+import { ArrowLeft, Link2, Monitor, PictureInPicture2, RotateCcw, Youtube, Zap } from 'lucide-vue-next'
+import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
+import YouTubePlayer from './YouTubePlayer.vue'
+import { normalizeYouTubeUrl } from '../media/youtube'
 
 const emit = defineEmits(['stop'])
 const store = useRefereeStore()
@@ -167,6 +237,55 @@ const dontAskZeroTemp = ref(false)
 const showWindowSelector = ref(false)
 const windowList = ref([])
 const selectedTargetWindow = ref("")
+const presentationMode = ref('window')
+const showVideoWorkspace = ref(false)
+const videoUrl = ref('')
+const savingMedia = ref(false)
+const mediaError = ref('')
+const mediaSaved = ref(false)
+
+const currentBinding = computed(() => {
+  const group = store.currentContext.groupName
+  const contestant = store.currentContext.contestantName
+  return store.projectConfig.media?.[group]?.[contestant] || null
+})
+const currentVideoId = computed(() => currentBinding.value?.video_id || '')
+const canConfirmPresentation = computed(() =>
+  presentationMode.value === 'video' ? Boolean(videoUrl.value) : Boolean(selectedTargetWindow.value)
+)
+
+watch(
+  () => [store.currentContext.groupName, store.currentContext.contestantName, currentBinding.value?.video_id],
+  () => {
+    videoUrl.value = currentBinding.value?.canonical_url || ''
+    mediaError.value = ''
+    mediaSaved.value = false
+  },
+  { immediate: true }
+)
+
+const saveVideoBinding = async () => {
+  if (!store.currentContext.contestantName || !videoUrl.value) return false
+  savingMedia.value = true
+  mediaError.value = ''
+  mediaSaved.value = false
+  try {
+    const normalized = normalizeYouTubeUrl(videoUrl.value)
+    const binding = await store.saveMediaBinding(
+      store.currentContext.groupName,
+      store.currentContext.contestantName,
+      normalized.canonical_url
+    )
+    videoUrl.value = binding.canonical_url
+    mediaSaved.value = true
+    return true
+  } catch (error) {
+    mediaError.value = error.response?.data?.msg || error.message || t('media_invalid')
+    return false
+  } finally {
+    savingMedia.value = false
+  }
+}
 
 const currentGroupPlayers = computed(() => {
   const gName = store.currentContext.groupName
@@ -381,7 +500,32 @@ const handleGlobalKeydown = (e) => {
   }
 }
 
-const openWindowSelector = async () => { windowList.value = await store.fetchWindows(); showWindowSelector.value = true }
+const selectPresentationMode = async (mode) => {
+  presentationMode.value = mode
+  mediaError.value = ''
+  if (mode === 'window' && windowList.value.length === 0) {
+    windowList.value = await store.fetchWindows()
+  }
+}
+
+const openPresentationSelector = async (mode = null) => {
+  const targetMode = mode || (showVideoWorkspace.value ? 'video' : presentationMode.value)
+  await selectPresentationMode(targetMode)
+  videoUrl.value = currentBinding.value?.canonical_url || ''
+  mediaSaved.value = false
+  showWindowSelector.value = true
+}
+
+const confirmPresentation = async () => {
+  if (presentationMode.value === 'video') {
+    const saved = await saveVideoBinding()
+    if (!saved) return
+    showWindowSelector.value = false
+    showVideoWorkspace.value = true
+    return
+  }
+  await confirmOverlay()
+}
 
 const confirmOverlay = async () => {
   if (!selectedTargetWindow.value) return
@@ -419,13 +563,32 @@ const confirmOverlay = async () => {
 .btn-next { background: #27ae60; color: white; min-width: 130px; justify-content: center; position: relative; &:hover { background: #2ecc71; } }
 .btn-zero { background: rgba(192, 57, 43, 0.2); color: #e74c3c; border: 1px solid rgba(192, 57, 43, 0.4); padding: 0 10px; min-width: 50px; justify-content: center; position: relative; &:hover { background: #c0392b; color: white; } }
 .shortcut-tag { position: absolute; top: -8px; right: -5px; font-size: 0.65rem; background: #111; color: #aaa; border: 1px solid #444; padding: 1px 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); &.warning { border-color: #c0392b; color: #e74c3c; } }
-.panels-container { flex: 1; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); grid-auto-rows: max-content; gap: 15px; overflow-y: auto; align-content: start; }
+.panels-container { flex: 1; min-width: 0; padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); grid-auto-rows: max-content; gap: 15px; align-content: start; overflow-y: auto; }
+.video-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 18px; box-sizing: border-box; overflow: auto; }
+.video-workspace-toolbar { min-height: 36px; display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 10px; margin-bottom: 12px; }
+.workspace-title { display: flex; align-items: center; justify-content: center; gap: 8px; color: #eceef1; font-size: 0.9rem; font-weight: 650; }
+.workspace-icon-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #42444a; border-radius: 5px; background: #242529; color: #d7d9dd; cursor: pointer; }
+.workspace-icon-button:hover { background: #303238; color: #fff; }
+.video-score-layout { min-height: 0; display: grid; grid-template-columns: minmax(390px, 1.55fr) minmax(260px, 0.75fr); gap: 18px; align-items: start; }
+.workspace-player { min-width: 0; }
+.bind-video-command { width: 100%; min-height: 36px; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #3d6480; border-radius: 5px; background: #213b4d; color: #d8edfb; cursor: pointer; }
 .score-card { background: #ecf0f1; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); color: #2c3e50; .card-top { width: 100%; display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; font-weight: bold; } .status-indicators { display: flex; gap: 4px; } .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bdc3c7; &.connected { background: #2ecc71; } } .score-main { font-size: 4rem; font-weight: 800; line-height: 1; margin: 10px 0; } .score-detail { font-size: 1rem; color: #666; background: #ddd; padding: 2px 10px; border-radius: 10px; } }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
 .modal-content { background: #2b2b2b; padding: 25px; border-radius: 8px; width: 380px; text-align: center; color: white; h3 { margin-top: 0; } }
+.presentation-dialog { width: min(520px, calc(100vw - 48px)); box-sizing: border-box; }
+.presentation-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.presentation-modes button { min-height: 68px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px solid #484b51; border-radius: 6px; background: #222326; color: #b9bdc4; cursor: pointer; }
+.presentation-modes button.active { border-color: #3498db; background: #20394a; color: #fff; }
+.video-binding-form { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; text-align: left; }
+.video-binding-form label { grid-column: 1 / -1; color: #aeb2b9; font-size: 0.78rem; }
+.video-binding-form input { grid-column: 1 / -1; width: 100%; height: 38px; box-sizing: border-box; border: 1px solid #4b4e54; border-radius: 5px; background: #151618; color: #eee; padding: 0 10px; outline: none; }
+.video-binding-form input:focus { border-color: #4da3dc; }
+.media-saved { color: #45c486; font-size: 0.75rem; }
+.media-error { grid-column: 1 / -1; color: #ff8b8b; font-size: 0.76rem; }
 .modal-actions { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
 .vertical-actions { flex-direction: column; }
 .btn-confirm { background: #3498db; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
+.btn-confirm:disabled { opacity: 0.45; cursor: default; }
 .btn-confirm.warning { background: #c0392b; &:hover { background: #e74c3c; } }
 .btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
 .large { width: 100%; margin-bottom: 10px; padding: 12px; font-size: 1rem; }
@@ -436,5 +599,9 @@ const confirmOverlay = async () => {
 .penalty-text {
   color: #c0392b;
   font-weight: 800;
+}
+
+@media (max-width: 780px) {
+  .video-score-layout { grid-template-columns: 1fr; }
 }
 </style>
