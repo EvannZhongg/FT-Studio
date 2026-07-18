@@ -30,6 +30,10 @@ export const IPC_CHANNELS = {
   reports: {
     getLegacy: 'reports:get-legacy'
   },
+  projects: {
+    listLegacy: 'projects:list-legacy',
+    deleteLegacy: 'projects:delete-legacy'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -145,6 +149,10 @@ export interface LegacyReportResult {
   }>>>
 }
 
+export type LegacyProjectSummary = LegacyReportResult['config'] & {
+  dir_name: string
+}
+
 export interface OverlayInitialState {
   referees: Record<string, unknown>
   context: Record<string, unknown>
@@ -188,6 +196,10 @@ export interface FtEngineApi {
   }
   reports: {
     getLegacy: (sourceKey: string) => Promise<LegacyReportResult | null>
+  }
+  projects: {
+    listLegacy: () => Promise<LegacyProjectSummary[]>
+    deleteLegacy: (sourceKey: string) => Promise<boolean>
   }
   overlay: {
     open: (options: OverlayOpenOptions) => void

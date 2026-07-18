@@ -38,6 +38,10 @@ const IPC_CHANNELS = {
   reports: {
     getLegacy: 'reports:get-legacy'
   },
+  projects: {
+    listLegacy: 'projects:list-legacy',
+    deleteLegacy: 'projects:delete-legacy'
+  },
   overlay: {
     open: 'overlay:open',
     close: 'overlay:close',
@@ -87,6 +91,10 @@ const ftEngine = {
   },
   reports: {
     getLegacy: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.reports.getLegacy, sourceKey)
+  },
+  projects: {
+    listLegacy: () => ipcRenderer.invoke(IPC_CHANNELS.projects.listLegacy),
+    deleteLegacy: (sourceKey) => ipcRenderer.invoke(IPC_CHANNELS.projects.deleteLegacy, sourceKey)
   },
   overlay: {
     open: (options) => ipcRenderer.send(IPC_CHANNELS.overlay.open, options),

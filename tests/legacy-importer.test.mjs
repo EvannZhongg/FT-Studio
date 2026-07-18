@@ -7,6 +7,8 @@ import test from 'node:test'
 
 import {
   buildLegacyProjectImport,
+  deleteLegacyProjectSource,
+  importLegacyProject,
   importLegacyProjects
 } from '../src/main/persistence/legacy-importer.mts'
 import { LocalDatabase } from '../src/main/persistence/local-database.mts'
@@ -140,12 +142,25 @@ test('imports old projects idempotently and preserves group referee indexes', ()
 
     const second = importLegacyProjects(database, fixture.legacyRoot)
     assert.deepEqual(second, { projects: 1, imported: 0, events: 0, errors: [] })
+    const projects = database.listLegacyProjects()
+    assert.equal(projects.length, 1)
+    assert.equal(projects[0].dir_name, fixture.projectName)
+    assert.equal(projects[0].groups[0].refCount, 1)
+    assert.equal(deleteLegacyProjectSource(fixture.legacyRoot, fixture.projectName), true)
+    assert.equal(database.deleteLegacyProject(fixture.projectName), true)
+    assert.deepEqual(database.listLegacyProjects(), [])
+    assert.deepEqual(importLegacyProjects(database, fixture.legacyRoot), {
+      projects: 0,
+      imported: 0,
+      events: 0,
+      errors: []
+    })
   } finally {
     database.close()
   }
 })
 
-test('replaces one imported competition when its source hash changes', () => {
+test('refreshes one imported competition when its source hash changes', () => {
   const fixture = createLegacyFixture()
   const database = new LocalDatabase(
     path.join(fixture.root, 'ft-engine.db'),
@@ -156,9 +171,34 @@ test('replaces one imported competition when its source hash changes', () => {
     importLegacyProjects(database, fixture.legacyRoot)
     writeFileSync(fixture.newCsvPath, fixture.newCsv +
       '2026-07-18 12:01:02.000,400,PRIMARY,3,1,3,0,0,event-bob-2,youtube,dQw4w9WgXcQ,5500,aligned\n')
-    const updated = importLegacyProjects(database, fixture.legacyRoot)
-    assert.deepEqual(updated, { projects: 1, imported: 1, events: 4, errors: [] })
+    const updated = importLegacyProject(database, fixture.legacyRoot, fixture.projectName)
+    assert.deepEqual(updated, { found: true, imported: true, events: 4 })
     assert.equal(database.getLegacyImportSummary(fixture.projectName)?.events, 4)
+    assert.equal(
+      database.getLegacyReport(fixture.projectName)?.scores['Final Group'].Bob[1].total,
+      3
+    )
+  } finally {
+    database.close()
+  }
+})
+
+test('rejects legacy source keys that escape the project root', () => {
+  const fixture = createLegacyFixture()
+  const database = new LocalDatabase(
+    path.join(fixture.root, 'ft-engine.db'),
+    path.join(fixture.root, 'backups')
+  )
+  database.open()
+  try {
+    assert.throws(
+      () => importLegacyProject(database, fixture.legacyRoot, '..'),
+      /LEGACY_SOURCE_KEY_INVALID/
+    )
+    assert.throws(
+      () => deleteLegacyProjectSource(fixture.legacyRoot, `${fixture.projectName}/config.json`),
+      /LEGACY_SOURCE_KEY_INVALID/
+    )
   } finally {
     database.close()
   }

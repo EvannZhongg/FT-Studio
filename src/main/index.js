@@ -18,7 +18,11 @@ import { normalizeExternalUrl, normalizeOverlayOptions } from './security.mjs'
 import { IPC_CHANNELS } from '../shared/ipc-contract'
 import { WorkerClient } from './worker/worker-client.mjs'
 import { LocalDatabase } from './persistence/local-database.mts'
-import { importLegacyProjects } from './persistence/legacy-importer.mts'
+import {
+  deleteLegacyProjectSource,
+  importLegacyProject,
+  importLegacyProjects
+} from './persistence/legacy-importer.mts'
 import { parseLegacyShadowEventLine } from './legacy/shadow-event.mts'
 
 const { spawn, execSync } = require('child_process')
@@ -221,6 +225,24 @@ function openLocalDatabase() {
     `Legacy import: projects=${imported.projects}, imported=${imported.imported}, ` +
     `events=${imported.events}, errors=${imported.errors.length}`
   )
+}
+
+function getLegacyProjectRoot() {
+  return join(getDataRoot(app), 'match_data')
+}
+
+function refreshLegacyProject(sourceKey) {
+  try {
+    const result = importLegacyProject(localDatabase, getLegacyProjectRoot(), sourceKey)
+    if (result.imported) {
+      logToFile(`Legacy project refreshed: source=${sourceKey}, events=${result.events}`)
+    }
+    return true
+  } catch (error) {
+    console.error(`[Electron] Failed to refresh legacy project ${sourceKey}:`, error.message)
+    logToFile(`Legacy project refresh failed: source=${sourceKey}, error=${error.message}`)
+    return false
+  }
 }
 
 function closeLocalDatabase() {
@@ -559,6 +581,7 @@ app.whenReady().then(async () => {
         }
       }
       if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+      if (!refreshLegacyProject(sourceKey)) throw new Error('LEGACY_IMPORT_FAILED')
       return localDatabase.getLegacyReplay(sourceKey, groupName, contestantName)
     }
   )
@@ -569,7 +592,27 @@ app.whenReady().then(async () => {
       throw new Error('IPC_INVALID_REPORT_CONTEXT')
     }
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    if (!refreshLegacyProject(sourceKey)) throw new Error('LEGACY_IMPORT_FAILED')
     return localDatabase.getLegacyReport(sourceKey)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projects.listLegacy, (event) => {
+    assertMainSender(event)
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    const imported = importLegacyProjects(localDatabase, getLegacyProjectRoot())
+    if (imported.errors.length > 0) throw new Error('LEGACY_IMPORT_FAILED')
+    return localDatabase.listLegacyProjects()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projects.deleteLegacy, (event, sourceKey) => {
+    assertMainSender(event)
+    if (typeof sourceKey !== 'string' || !sourceKey || sourceKey.length > 256) {
+      throw new Error('IPC_INVALID_PROJECT_SOURCE')
+    }
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    if (!localDatabase.getLegacyImportSummary(sourceKey)) return false
+    deleteLegacyProjectSource(getLegacyProjectRoot(), sourceKey)
+    return localDatabase.deleteLegacyProject(sourceKey)
   })
 
   ipcMain.handle(IPC_CHANNELS.app.getServerConfig, (event) => {

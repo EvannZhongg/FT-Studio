@@ -764,6 +764,29 @@ export class LocalDatabase {
     }
   }
 
+  listLegacyProjects(): Array<Record<string, unknown>> {
+    const rows = this.requireDatabase().prepare(`
+      SELECT li.source_key
+      FROM legacy_imports li
+      JOIN competitions c ON c.id = li.competition_id
+      ORDER BY c.created_at DESC, li.source_key DESC
+    `).all() as Array<{ source_key: string }>
+    return rows.flatMap((row) => {
+      const report = this.getLegacyReport(row.source_key)
+      return report ? [{ dir_name: row.source_key, ...report.config }] : []
+    })
+  }
+
+  deleteLegacyProject(sourceKey: string): boolean {
+    const database = this.requireDatabase()
+    const row = database.prepare(
+      'SELECT competition_id FROM legacy_imports WHERE source_key = ?'
+    ).get(sourceKey) as { competition_id: string } | undefined
+    if (!row) return false
+    const result = database.prepare('DELETE FROM competitions WHERE id = ?').run(row.competition_id)
+    return Number(result.changes) === 1
+  }
+
   private applyMigrations(currentVersion: number): void {
     const database = this.requireDatabase()
     database.exec('BEGIN IMMEDIATE')

@@ -320,6 +320,13 @@ export const useRefereeStore = defineStore('referee', {
     // --- 7. 历史记录与报表 ---
 
     async fetchHistoryProjects() {
+      if (window.ftEngine?.projects) {
+        try {
+          return await window.ftEngine.projects.listLegacy()
+        } catch (e) {
+          console.warn("SQLite project list unavailable, using legacy backend", e)
+        }
+      }
       try {
         const res = await axios.get(`${this.apiBase}/api/projects/list`)
         return res.data.projects || []
@@ -344,9 +351,17 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     async fetchReportData(dirName) {
+      if (window.ftEngine?.reports) {
+        try {
+          const report = await window.ftEngine.reports.getLegacy(dirName)
+          if (report) return report
+        } catch (e) {
+          console.warn("SQLite report unavailable, using legacy backend", e)
+        }
+      }
       try {
-        if (!window.ftEngine?.reports) return null
-        return await window.ftEngine.reports.getLegacy(dirName)
+        const res = await axios.post(`${this.apiBase}/api/project/report`, {dir_name: dirName})
+        return res.data
       } catch (e) {
         console.error("Fetch report failed", e)
         return null
@@ -375,9 +390,21 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     async fetchReplayData(dirName, groupName, contestantName) {
+      if (window.ftEngine?.replay) {
+        try {
+          const replay = await window.ftEngine.replay.getLegacy(dirName, groupName, contestantName)
+          if (replay) return replay
+        } catch (e) {
+          console.warn('SQLite replay unavailable, using legacy backend', e)
+        }
+      }
       try {
-        if (!window.ftEngine?.replay) return null
-        return await window.ftEngine.replay.getLegacy(dirName, groupName, contestantName)
+        const res = await axios.post(`${this.apiBase}/api/project/replay`, {
+          dir_name: dirName,
+          group: groupName,
+          contestant: contestantName
+        })
+        return res.data
       } catch (e) {
         console.error('Fetch replay failed', e)
         return null
@@ -425,12 +452,32 @@ export const useRefereeStore = defineStore('referee', {
     },
     // --- 新增：删除项目 ---
     async deleteProject(dirName) {
+      let deletedViaIpc = false
       try {
-        const res = await axios.post(`${this.apiBase}/api/project/delete`, {dir_name: dirName})
-        if (res.data.status === 'ok' && this.appSettings.project_preferences) {
-          delete this.appSettings.project_preferences[dirName]
+        let deleted = false
+        if (window.ftEngine?.projects) {
+          try {
+            deleted = await window.ftEngine.projects.deleteLegacy(dirName)
+            deletedViaIpc = true
+          } catch (e) {
+            console.warn("SQLite project delete unavailable, using legacy backend", e)
+          }
         }
-        return res.data.status === 'ok'
+        if (!deletedViaIpc) {
+          const res = await axios.post(`${this.apiBase}/api/project/delete`, {dir_name: dirName})
+          deleted = res.data.status === 'ok'
+        }
+        if (deleted && this.appSettings.project_preferences) {
+          delete this.appSettings.project_preferences[dirName]
+          if (deletedViaIpc) {
+            try {
+              await this.updateSetting('project_preferences', this.appSettings.project_preferences)
+            } catch (e) {
+              console.error("Project deleted but preference cleanup failed", e)
+            }
+          }
+        }
+        return deleted
       } catch (e) {
         console.error("Delete project failed", e)
         return false

@@ -2,131 +2,111 @@
 
 Language: [English](README.md) | [中文](README_zh.md)
 
-FT Engine is a professional electronic referee system for competitions that require accurate scoring, real-time visualization, and multi-device coordination. It combines BLE clicker hardware, real-time waveform analysis, OBS-friendly overlays, and full match data management.
+FT Engine is an Electron desktop scoring application for competitive events. It supports BLE/USB clickers, SINGLE/DUAL referee modes, OBS overlays, YouTube scoring timelines, historical reports, and exports.
 
+## Current Architecture
 
-## Key Features
-- **Multi-mode**: Free Mode and Tournament Mode
-- **BLE hardware**: single or dual clicker setup with low-latency sync
-- **Real-time visualization**: waveform widget for scoring trends
-- **Streaming overlay**: transparent overlay for OBS or game capture
-- **Data management**: CSV raw data, TXT logs, and SRT subtitle export
-- **Internationalization**: built-in Chinese, English, and Japanese
+Route B is being introduced incrementally. The current application is a working dual-runtime transition:
 
-## Development Setup
+- Window, shortcut, overlay, window discovery, device scan, historical project list/delete, report, and replay flows use constrained IPC.
+- Electron Main owns the security boundary, Platform Worker, and shadow SQLite database.
+- The Python Platform Worker provides window capabilities and device discovery and already contains device-session primitives.
+- The legacy FastAPI backend still owns project writes, live scoring, WebSocket updates, media anchors, CSV storage, and exports.
+- SQLite has versioned migrations, backups, legacy import, shadow score writes, and historical list/report/replay readers, but is not yet the only authoritative store.
+
+See [Route B refactor status](docs/REFACTOR_PLAN_ROUTE_B_zh.md) for the exact progress, blockers, and cutover order. Do not assume the localhost backend has already been removed.
+
+## Features
+
+- Free and Tournament modes.
+- BLE/USB clickers with single and dual-device referees.
+- Live scoring, major penalties, waveform display, and contestant navigation.
+- Transparent OBS-friendly overlay and target-window positioning.
+- YouTube video scoring, playback anchors, and score overlays during replay.
+- Historical reports plus CSV, SRT, and ZIP exports.
+- Chinese, English, and Japanese UI.
+
+## Development
+
 Prerequisites:
-- Node.js 18+
-- Python 3.9+
-- Bluetooth enabled on the host machine
 
-All commands below run inside [`FT-Engine/`](./FT-Engine).
+- Node.js 22+.
+- Python 3.10+; the project `.venv` is recommended.
+- Bluetooth and the relevant USB drivers for physical-device development.
 
-### 1. Install Dependencies
-```bash
+~~~bash
 npm install
 python -m pip install -r requirements.txt
-```
-
-### 2. Development
-```bash
 npm run dev
-```
+~~~
 
-In development mode, Electron starts the Python backend automatically from `server.py`.
+Electron currently starts the legacy backend, Platform Worker, and SQLite together. The development Renderer normally uses `http://localhost:5173`; the legacy backend defaults to `127.0.0.1:8000`.
 
-### 3. Build Backend Only
-```bash
-# Auto-select script for current platform
+## Verification
+
+~~~bash
+npm test
+npm run typecheck
+npm run lint
+npm run build
+python -m unittest discover -s tests
+~~~
+
+Node tests cover the scoring domain, IPC/Worker protocol, security boundary, SQLite, legacy import, reports, and replay. Python tests cover device protocols and services, platform adapters, legacy scoring parity, and media anchors.
+
+## Packaging
+
+~~~bash
 npm run build:backend
-
-# Windows
-npm run build:backend:win
-
-# macOS
-npm run build:backend:mac
-```
-
-What these do:
-- `build:backend:win`: builds `backend-engine.exe` with PyInstaller
-- `build:backend:mac`: builds `backend-engine/` as a macOS `onedir` backend and applies Bluetooth entitlements
-
-### 4. Build Application Packages
-```bash
-# Windows installer
-npm run build:win
-
-# macOS DMG
-npm run build:mac
-
-# Unpacked app for local inspection
 npm run build:unpack
-```
+npm run build:win
+npm run build:mac
+~~~
 
-## Configuration and Data
-- Runtime config file: `FT-Engine/config.yaml`
-- App settings in development: `FT-Engine/app_settings.json`
-- Match data in development: `FT-Engine/match_data/`
-- Packaged app settings and match data: system user-data directory
+Transition builds still package two Python executables: `backend-engine` for the legacy FastAPI runtime and `local-platform-worker` for the JSONL stdio worker.
 
-Typical packaged data locations:
-- Windows: `%APPDATA%/FT Engine/`
-- macOS: `~/Library/Application Support/FT Engine/`
+## Local Data
 
-## Project Structure
-```text
-FT_Engine/
-├── README.md
-├── README_zh.md
-└── FT-Engine/
-    ├── server.py
-    ├── config.yaml
-    ├── requirements.txt
-    ├── package.json
-    ├── resources/
-    │   ├── icon.png
-    │   ├── entitlements.mac.plist
-    │   ├── entitlements-backend.plist
-    │   └── installer.nsh
-    ├── scripts/
-    │   ├── build-backend.js
-    │   ├── build-backend-win.ps1
-    │   ├── build-backend-mac.sh
-    │   └── rename-mac-artifacts.js
-    ├── src/
-    │   ├── main/
-    │   │   ├── index.js
-    │   │   └── platform.js
-    │   ├── preload/
-    │   │   └── index.js
-    │   └── renderer/
-    │       ├── index.html
-    │       └── src/
-    │           ├── components/
-    │           ├── locales/
-    │           ├── stores/
-    │           ├── App.vue
-    │           └── main.js
-    └── utils/
-        ├── app_settings.py
-        ├── exporter.py
-        ├── platform.py
-        ├── runtime.py
-        └── storage.py
-```
+Development data is written under the repository; packaged builds use Electron's user-data directory.
 
-## Important Shared Modules
-- `src/main/platform.js`: platform-specific Electron startup and backend launch behavior
-- `server.py`: shared FastAPI + BLE backend
-- `utils/platform.py`: BLE heartbeat policy by platform
-- `utils/runtime.py`: config path and writable data-root resolution
-- `scripts/`: build helpers used during packaging, not bundled as user-facing runtime features
+| Data | Purpose |
+| --- | --- |
+| `config.yaml` | Legacy backend runtime configuration |
+| `app_settings.json` | Current legacy settings |
+| `match_data/` | Authoritative legacy projects and CSV files |
+| `ft-engine.db` | Route B shadow SQLite database |
+| `backups/` | Pre-migration SQLite backups |
+| `logs/` | Startup and runtime logs |
+
+Typical packaged locations are `%APPDATA%/FT Engine/` on Windows and `~/Library/Application Support/FT Engine/` on macOS.
+
+## Key Directories
+
+~~~text
+src/main/domain/                 TypeScript scoring domain
+src/main/persistence/            SQLite, migrations, and legacy importer
+src/main/worker/                 WorkerClient
+src/main/legacy/                 Shadow-event compatibility
+src/preload/                     Narrow main/overlay APIs
+src/shared/                      IPC type contracts
+src/renderer/                    Vue UI
+workers/local_platform_worker/   BLE, USB, and window worker
+server.py                        Transitional FastAPI backend
+utils/                           Legacy storage, exports, and media
+tests/                           Node and Python regression tests
+~~~
 
 ## Documentation
-- Backend API: [docs/BACKEND_API.md](docs/BACKEND_API.md)
-- BLE Protocol: [docs/BLE_PROTOCOL.md](docs/BLE_PROTOCOL.md)
+
+- [Route B refactor status](docs/REFACTOR_PLAN_ROUTE_B_zh.md)
+- [Desktop product and community target](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
+- [Windows and macOS adaptation](docs/PLATFORM_ADAPTATION_zh.md)
+- [English user manual](Manual_Doc/en/manual.md)
 
 ## License
-Proprietary / Custom License (contact Freakthrow for details).
+
+Proprietary / Custom License (contact Freakthrow for licensing).
 
 ## Author
+
 Freakthrow Team

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
 
@@ -49,6 +49,12 @@ export interface LegacyImportRunResult {
   errors: Array<{ sourceKey: string; message: string }>
 }
 
+export interface LegacyProjectImportResult {
+  found: boolean
+  imported: boolean
+  events: number
+}
+
 const LEGACY_IMPORT_VERSION = '2'
 
 export function importLegacyProjects(database: LocalDatabase, legacyRoot: string): LegacyImportRunResult {
@@ -74,6 +80,26 @@ export function importLegacyProjects(database: LocalDatabase, legacyRoot: string
     }
   }
   return result
+}
+
+export function importLegacyProject(
+  database: LocalDatabase,
+  legacyRoot: string,
+  sourceKey: string
+): LegacyProjectImportResult {
+  const projectPath = resolveLegacyProjectPath(legacyRoot, sourceKey)
+  if (!existsSync(path.join(projectPath, 'config.json'))) {
+    return { found: false, imported: false, events: 0 }
+  }
+  const result = database.importLegacyProject(buildLegacyProjectImport(projectPath))
+  return { found: true, imported: result.imported, events: result.eventCount }
+}
+
+export function deleteLegacyProjectSource(legacyRoot: string, sourceKey: string): boolean {
+  const projectPath = resolveLegacyProjectPath(legacyRoot, sourceKey)
+  if (!existsSync(projectPath)) return false
+  rmSync(projectPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 })
+  return true
 }
 
 export function buildLegacyProjectImport(projectPath: string): LegacyProjectImport {
@@ -280,6 +306,24 @@ function hashProjectFiles(projectPath: string): string {
     hash.update('\0')
   }
   return hash.digest('hex')
+}
+
+function resolveLegacyProjectPath(legacyRoot: string, sourceKey: string): string {
+  if (typeof sourceKey !== 'string' || !sourceKey || sourceKey.length > 256) {
+    throw new Error('LEGACY_SOURCE_KEY_INVALID')
+  }
+  const resolvedRoot = path.resolve(legacyRoot)
+  const projectPath = path.resolve(resolvedRoot, sourceKey)
+  const relative = path.relative(resolvedRoot, projectPath)
+  if (
+    path.basename(sourceKey) !== sourceKey ||
+    relative !== sourceKey ||
+    path.isAbsolute(relative) ||
+    relative.startsWith('..')
+  ) {
+    throw new Error('LEGACY_SOURCE_KEY_INVALID')
+  }
+  return projectPath
 }
 
 function stableId(...parts: string[]): string {
