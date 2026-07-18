@@ -13,9 +13,9 @@
         <div class="group-label">{{ store.currentContext.groupName || $t('wiz_mode_free') }}</div>
 
         <div class="player-navigator">
-          <button class="nav-arrow" @click="manualChange(-1)">◀</button>
+          <button class="nav-arrow" :disabled="isContextChanging" @click="manualChange(-1)">◀</button>
           <div class="select-wrapper">
-            <select class="player-select" :value="store.currentContext.contestantName" @change="onSelectPlayer">
+            <select class="player-select" :value="store.currentContext.contestantName" :disabled="isContextChanging" @change="onSelectPlayer">
               <option
                 v-for="p in currentGroupPlayers"
                 :key="p"
@@ -26,7 +26,7 @@
               </option>
             </select>
           </div>
-          <button class="nav-arrow" @click="manualChange(1)">▶</button>
+          <button class="nav-arrow" :disabled="isContextChanging" @click="manualChange(1)">▶</button>
         </div>
       </div>
 
@@ -50,7 +50,7 @@
           <span>{{ $t('sb_btn_overlay') }}</span>
         </button>
 
-        <button class="btn-tool btn-next" @click="handleNextClick">
+        <button class="btn-tool btn-next" :disabled="isContextChanging" @click="handleNextClick">
           <span class="btn-text">
             {{ isAllDone ? $t('sb_btn_finish') : '⏭ ' + $t('sb_btn_next') }}
           </span>
@@ -59,13 +59,31 @@
           </span>
         </button>
 
-        <button class="btn-tool btn-zero" @click="handleResetOnly" :title="$t('sb_btn_zero')">
+        <button class="btn-tool btn-zero" :disabled="isContextChanging" @click="handleResetOnly" :title="$t('sb_btn_zero')">
           <RotateCcw :size="16" />
           <span class="shortcut-tag warning" v-if="store.appSettings.reset_shortcut && !isAutoNext">
             {{ store.appSettings.reset_shortcut }}
           </span>
         </button>
       </div>
+    </div>
+
+    <div class="match-health-bar" role="status" aria-live="polite">
+      <span class="health-item" :class="store.matchStatus.persistence">
+        <Database :size="14" />
+        {{ $t(`match_persistence_${store.matchStatus.persistence}`) }}
+      </span>
+      <span class="health-item" :class="store.matchStatus.worker">
+        <Cpu :size="14" />
+        {{ $t(`match_worker_${store.matchStatus.worker}`) }}
+      </span>
+      <span class="health-item" :class="store.matchStatus.media">
+        <Video :size="14" />
+        {{ $t(`match_media_${store.matchStatus.media}`) }}
+      </span>
+      <code v-if="store.matchStatus.errorCode" class="health-error">
+        {{ store.matchStatus.errorCode }}
+      </code>
     </div>
 
     <div v-if="showVideoWorkspace" class="video-workspace">
@@ -220,7 +238,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue' // 引入 watch
 import { useRefereeStore } from '../stores/refereeStore'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Link2, Monitor, PictureInPicture2, RotateCcw, Youtube, Zap } from 'lucide-vue-next'
+import { ArrowLeft, Cpu, Database, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
 import { normalizeYouTubeUrl } from '../media/youtube'
@@ -245,6 +263,7 @@ const videoUrl = ref('')
 const savingMedia = ref(false)
 const mediaError = ref('')
 const mediaSaved = ref(false)
+const isContextChanging = ref(false)
 
 const currentBinding = computed(() => {
   const group = store.currentContext.groupName
@@ -301,6 +320,7 @@ let removeShortcutListener = () => {}
 
 // 执行快捷键动作
 const executeShortcutAction = () => {
+  if (isContextChanging.value) return
   console.log('Shortcut triggered! Auto mode:', isAutoNext.value)
   if (isAutoNext.value) {
     handleNextClick()
@@ -319,8 +339,8 @@ const registerShortcut = async (shortcut) => {
 }
 
 onMounted(async () => {
-  store.connectWebSocket()
-  store.fetchSettings()
+  await store.initConfig()
+  await store.fetchSettings()
 
   if (store.currentContext.groupName) {
     if (!store.currentContext.contestantName && currentGroupPlayers.value.length > 0) {
@@ -386,6 +406,7 @@ const initResumeState = async () => {
 }
 
 const handleNextClick = () => {
+  if (isContextChanging.value) return
   if (store.appSettings.suppress_reset_confirm || isAutoNext.value) confirmSmartNext()
   else { dontAskAgainTemp.value = false; showResetDialog.value = true }
 }
@@ -399,11 +420,9 @@ const confirmSmartNext = async () => {
   const nextPlayer = findNextUnscoredPlayer()
   if (nextPlayer) {
     await switchContext(nextPlayer)
-    await store.resetAll()
   } else {
     if (store.projectConfig.mode === 'FREE') {
        await changePlayer(1)
-       await store.resetAll()
     } else {
        showAllDoneDialog.value = true
     }
@@ -430,7 +449,6 @@ const continueLoopMatch = async () => {
       const firstPlayer = currentGroupPlayers.value[0]
       if (firstPlayer) {
           await switchContext(firstPlayer)
-          await store.resetAll()
       }
   }
 }
@@ -447,23 +465,29 @@ const changePlayer = async (delta) => {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
       await store.updateGroups(store.projectConfig.groups)
-      await store.setMatchContext(groupName, newPlayerName)
-      await store.resetAll()
+      await switchContext(newPlayerName)
     }
   } else if (nextIdx < 0) {
       const target = group.players[group.players.length - 1]
-      await store.setMatchContext(groupName, target)
-      await store.resetAll()
+      await switchContext(target)
   } else {
       const target = group.players[nextIdx]
-      await store.setMatchContext(groupName, target)
-      await store.resetAll()
+      await switchContext(target)
   }
 }
 
-const switchContext = async (name) => { await store.setMatchContext(store.currentContext.groupName, name) }
+const switchContext = async (name) => {
+  if (isContextChanging.value || !name || name === store.currentContext.contestantName) return
+  isContextChanging.value = true
+  try {
+    await store.setMatchContext(store.currentContext.groupName, name)
+  } finally {
+    isContextChanging.value = false
+  }
+}
 
 const handleResetOnly = () => {
+  if (isContextChanging.value) return
   if (store.appSettings.suppress_zero_confirm) {
     confirmZeroReset()
   } else {
@@ -484,7 +508,7 @@ const manualChange = async (delta) => {
     await changePlayer(delta)
 }
 
-const onSelectPlayer = async (e) => { await switchContext(e.target.value); await store.resetAll() }
+const onSelectPlayer = async (e) => { await switchContext(e.target.value) }
 
 const handleGlobalKeydown = (e) => {
   const shortcut = store.appSettings.reset_shortcut || "Ctrl+G"
@@ -556,7 +580,14 @@ const confirmOverlay = async () => {
 .header-section.left { width: 120px; }
 .header-section.center { flex: 1; justify-content: center; gap: 15px; min-width: 0; }
 .header-section.right { justify-content: flex-end; gap: 12px; }
+.match-health-bar { min-height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid #34363a; background: #202124; color: #aeb2b8; font-size: 0.75rem; }
+.health-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: #9ea3aa; }
+.health-item.saved, .health-item.ready, .health-item.aligned { color: #6fc596; }
+.health-item.saving, .health-item.reconnecting, .health-item.stale, .health-item.context_mismatch, .health-item.not_ready { color: #d8b667; }
+.health-item.error { color: #ef8888; }
+.health-error { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef8888; font-size: 0.7rem; }
 .btn-tool { height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: #2b2b2b; color: #eee; font-size: 0.9rem; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.2s ease; &:hover { background: #383838; border-color: #555; } &:active { transform: translateY(1px); } }
+.btn-tool:disabled, .nav-arrow:disabled, .player-select:disabled { opacity: 0.5; cursor: wait; }
 .btn-stop { background: transparent; border: 1px solid #444; color: #aaa; &:hover { color: #fff; border-color: #666; background: #333; } }
 .player-navigator { display: flex; align-items: center; background: #111; border-radius: 6px; border: 1px solid #333; padding: 3px; height: 38px; }
 .nav-arrow { background: transparent; border: none; color: #666; width: 30px; height: 100%; cursor: pointer; border-radius: 4px; &:hover { background: #222; color: #fff; } }

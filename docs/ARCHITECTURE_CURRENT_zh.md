@@ -12,11 +12,11 @@ Vue Renderer
   │                ├─ Python Platform Worker (JSONL stdio)
   │                └─ Window / Overlay / Shortcut / Update
   │
-  └─ Axios + WebSocket ─ Legacy FastAPI backend
-                         ├─ project/config JSON and CSV compatibility
-                         ├─ settings and media URL normalization
-                         ├─ export
-                         └─ duplicate legacy hardware/scoring implementation
+  └─ Axios ─ Legacy FastAPI backend
+             ├─ project/config JSON and CSV compatibility
+             ├─ settings and media URL normalization
+             ├─ export
+             └─ dormant legacy hardware/scoring routes
 ~~~
 
 Electron 仍同时启动三个运行单元：`server.py`、Platform Worker 和 Electron Main 内 SQLite。当前不能把 FastAPI 或 legacy 文件存储描述为已经移除。
@@ -28,9 +28,9 @@ Electron 仍同时启动三个运行单元：`server.py`、Platform Worker 和 E
 | 窗口、快捷键、Overlay | Renderer -> IPC -> Main | 已切换 |
 | 窗口枚举和边界 | Main -> Platform Worker | 已切换 |
 | BLE/USB 扫描和重命名 | Main -> Platform Worker | 已切换 |
-| 实时设备连接、Reset、计数事件 | Renderer -> Main MatchSession -> Worker | 工作树中已接入，仍需集成加固 |
+| 实时设备连接、Reset、计数事件 | Renderer -> Main MatchSession -> Worker | 已切换；不再调用 legacy 实时 HTTP/WebSocket |
 | 分数聚合 | TypeScript 纯领域函数 | 已接管 Electron 实时路径 |
-| 实时事件写入 | MatchSession -> SQLite | 已接入；上下文创建和事件写入尚非单事务 |
+| 实时事件写入 | MatchSession -> SQLite | 上下文创建和事件写入在单个 `BEGIN IMMEDIATE` 事务内完成 |
 | 历史列表、报表、复盘、删除 | SQLite IPC 优先，REST 回退 | 过渡期主路径 |
 | legacy 项目导入 | JSON/CSV -> SQLite | 已实现幂等导入和 live-managed 保护 |
 | 项目创建、组别编辑、继续项目 | Renderer -> FastAPI | 未切换 |
@@ -46,23 +46,23 @@ Electron 仍同时启动三个运行单元：`server.py`、Platform Worker 和 E
 ~~~text
 Renderer startMatch
   -> Main importLegacyProject(source_key)
-  -> SQLite markLegacyProjectLive
-  -> FastAPI /teardown (释放 legacy 设备)
   -> MatchSessionService.start
   -> Worker device.connectMany
+  -> SQLite markLegacyProjectLive
   -> Worker device.counter event
   -> TypeScript scoring domain
-  -> SQLite score_events
+  -> SQLite ensure context + score_events (single transaction)
   -> IPC refereeUpdated -> Renderer/Overlay
 ~~~
 
-这使 Electron 路径中的活动设备原则上由 Worker 单独持有，但生产代码仍保留两套设备实现，Renderer 也仍长期连接 legacy WebSocket。项目源目录缺失、FastAPI teardown 失败或 SQLite 未就绪都会阻止新 MatchSession 启动。
+Electron 实时路径中的活动设备只由 Worker 持有。生产代码仍保留 legacy 设备/计分路由，但 Renderer 已无调用点，也不再创建 localhost WebSocket。项目源目录缺失或 SQLite/Worker 未就绪仍会阻止新 MatchSession 启动。
 
 ## 4. 当前代码集中点
 
 - `server.py` 约 1363 行，同时包含 Scanner、BLE/USB 节点、计分聚合、WebSocket、项目、媒体和导出路由。
-- `src/main/index.js` 约 986 行，同时承担进程启动、数据库导入、Worker 监管、MatchSession 组合、全部 IPC 和窗口生命周期。
-- `src/renderer/src/stores/refereeStore.js` 约 617 行，混合设置、项目、设备、比赛、Overlay、复盘和导出，并同时维护 IPC 与 REST。
+- `src/main/index.js` 约 969 行，同时承担进程启动、数据库导入、Worker 监管、MatchSession 组合、全部 IPC 和窗口生命周期。
+- `src/main/match/match-session.mts` 约 737 行，已经集中状态机、控制并发、事件持久化协调、媒体锚点和通知逻辑，需要在 P1 前继续按职责拆分。
+- `src/renderer/src/stores/refereeStore.js` 约 582 行，混合设置、项目、设备、比赛、Overlay、复盘和导出，并同时维护 IPC 与 REST。
 - `App.vue` 使用手写 `currentView`；主窗口与 Overlay 通过 query 参数共享入口。
 
 下一阶段不能只拆 `server.py`；Main 组合根和 Renderer Store 也已达到需要分域的规模。
@@ -71,18 +71,17 @@ Renderer startMatch
 
 ### 高优先级
 
-1. `MatchSession` 先更新内存分数，再分别确保上下文和追加事件。数据库失败只写日志，现场 UI 可能显示一个未持久化分数。
-2. Worker `device.counter` payload 进入领域函数前缺少完整边界捕获。非法事件或数据库异常可能从 EventEmitter 监听器抛到 Main。
-3. Renderer 的 `setMatchContext` 总是先写 FastAPI，活动比赛再写 Main，形成无事务双写和顺序竞争。
-4. `connectWebSocket()` 在关闭后固定重连，没有显式停止标志；主窗口、计分页和 Overlay 都会调用它。FastAPI 移除前应先收口生命周期。
+1. P0 的进程级验收尚未执行：仍需在真实 Electron 中启动比赛后停止 FastAPI，验证计分、切换、Reset、结束和 SQLite 查询完整可用。
+2. `setContext` 已把 Worker Reset 与内存上下文切换串行化，但完成旧 MatchSession、创建下一 MatchSession 和审计记录尚未形成数据库事务。
+3. 实时错误状态目前只在内存和 Renderer 状态条中保留；应用重启后的失败原因和恢复动作尚未持久化。
+4. Worker 自动重启有次数上限，耗尽后的状态可见但缺少用户触发的重试命令。
 
 ### 中优先级
 
-1. `MatchSession` 只有 `active` 布尔状态，无法准确表达 starting/stopping/failed 和恢复语义。
-2. 实时路径仍以导入 legacy 目录作为创建 SQLite 上下文的前置条件，新数据库尚不能独立创建比赛。
-3. 媒体 URL 在 Python 规范化后再写 SQLite，Main 的媒体接口不能独立完成绑定。
-4. 导入错误、事件持久化错误和 Worker 有限重启耗尽主要写日志，缺少用户可操作状态。
-5. Main 的 `index.js` 和 Renderer Store 已成为新的集中式文件，继续追加 IPC 会重复 `server.py` 的问题。
+1. 实时路径仍以导入 legacy 目录作为创建 SQLite 上下文的前置条件，新数据库尚不能独立创建比赛。
+2. 媒体 URL 在 Python 规范化后再写 SQLite，Main 的媒体接口不能独立完成绑定。
+3. 导入错误和迁移失败仍主要写日志，缺少用户可操作的迁移结果页面。
+4. Main 的 `index.js`、`MatchSessionService` 和 Renderer Store 已成为新的集中式文件，继续追加 IPC 会重复 `server.py` 的问题。
 
 ## 6. UI 当前差距
 
@@ -97,7 +96,7 @@ Renderer startMatch
 
 2026-07-18 本地检查结果：
 
-- `npm test`：39/39 通过。
+- `npm test`：46/46 通过。
 - `npm run typecheck`：通过。
 - `python -m unittest discover -s tests`：36/36 通过。
 - Docker 中存在 `pgvector-db`，镜像 `pgvector/pgvector:pg16`，宿主端口 `5433` 映射容器 `5432`。

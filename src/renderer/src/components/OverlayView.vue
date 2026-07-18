@@ -12,8 +12,8 @@
             {{ store.currentContext.contestantName || $t('ov_contestant_waiting') }}
           </span>
 
-          <button class="btn-dock" @click="changePlayer(1)" :title="$t('ov_btn_next')">Next ▶</button>
-          <button class="btn-dock btn-dock-reset" @click="store.resetAll()" :title="$t('ov_btn_reset')">R</button>
+          <button class="btn-dock" :disabled="contextChangePending" @click="changePlayer(1)" :title="$t('ov_btn_next')">Next ▶</button>
+          <button class="btn-dock btn-dock-reset" :disabled="contextChangePending" @click="store.resetAll()" :title="$t('ov_btn_reset')">R</button>
           <button class="btn-dock" @click="toggleWaveform" :class="{ active: showWaveform }" :title="$t('ov_btn_wave')">📈</button>
           <button class="btn-dock" @click="toggleSettings" :class="{ active: showSettings }" :title="$t('ov_btn_settings')">⚙️</button>
           <button class="btn-dock btn-dock-exit" @click="closeOverlay" :title="$t('ov_btn_close')">✖</button>
@@ -201,6 +201,7 @@ const resizeState = { startX: 0, startY: 0, startW: 0, startH: 0 }
 const showWaveform = ref(true)
 const showSettings = ref(false)
 const isDockVisible = ref(false)
+const contextChangePending = ref(false)
 const waveformCardRef = ref(null)
 let resizeObserver = null
 
@@ -344,6 +345,7 @@ const handleBackgroundClick = () => {
 let removeInitialDataListener = () => {}
 let removeRefereeUpdateListener = () => {}
 let removeContextUpdateListener = () => {}
+let removeStatusUpdateListener = () => {}
 if (window.ftOverlay) {
   removeInitialDataListener = window.ftOverlay.onInitialData((data) => {
     if (data.referees) {
@@ -371,6 +373,10 @@ if (window.ftOverlay) {
   })
   removeContextUpdateListener = window.ftOverlay.onContextUpdated((context) => {
     store.currentContext = context
+  })
+  removeStatusUpdateListener = window.ftOverlay.onStatusUpdated((status) => {
+    store.matchStatus = status
+    store.matchActive = status.state === 'starting' || status.state === 'active'
   })
 }
 
@@ -501,7 +507,6 @@ const setupResizeObserver = () => {
 
 onMounted(() => {
   loadConfig()
-  store.connectWebSocket()
   initCardPositions()
   setupResizeObserver()
   window.addEventListener('mousemove', onDrag)
@@ -517,6 +522,7 @@ onUnmounted(() => {
   removeInitialDataListener()
   removeRefereeUpdateListener()
   removeContextUpdateListener()
+  removeStatusUpdateListener()
 })
 
 const closeOverlay = () => window.ftOverlay?.close()
@@ -638,30 +644,30 @@ const stopDrag = () => {
 }
 
 const changePlayer = async (delta) => {
+  if (contextChangePending.value) return
   const groupName = store.currentContext.groupName
   const group = store.projectConfig.groups.find(g => g.name === groupName)
   if (!group) return
   const currentIdx = group.players.indexOf(store.currentContext.contestantName)
 
-  if (delta > 0 && store.currentContext.contestantName) {
-    if (store.broadcastPlayerScored) {
+  contextChangePending.value = true
+  try {
+    if (delta > 0 && store.currentContext.contestantName) {
       store.broadcastPlayerScored(store.currentContext.contestantName)
-    } else {
-      store.markAsScored(store.currentContext.contestantName)
     }
-  }
 
-  const nextIdx = currentIdx + delta
+    const nextIdx = currentIdx + delta
 
-  if (nextIdx >= group.players.length && store.projectConfig.mode === 'FREE') {
+    if (nextIdx >= group.players.length && store.projectConfig.mode === 'FREE') {
       const newPlayerName = `Player ${group.players.length + 1}`
       group.players.push(newPlayerName)
       await store.updateGroups(store.projectConfig.groups)
       await store.setMatchContext(groupName, newPlayerName)
-      await store.resetAll()
-  } else if (group.players[nextIdx]) {
+    } else if (group.players[nextIdx]) {
       await store.setMatchContext(groupName, group.players[nextIdx])
-      await store.resetAll()
+    }
+  } finally {
+    contextChangePending.value = false
   }
 }
 </script>

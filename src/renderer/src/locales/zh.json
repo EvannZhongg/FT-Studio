@@ -101,6 +101,7 @@
 
   "sb_btn_stop": "结束",
   "sb_lbl_auto": "自动",
+  "chk_auto_next": "自动完成并切换到下一位选手",
   "sb_btn_overlay": "悬浮",
   "sb_btn_finish": "完成",
   "sb_btn_next": "下一位",
@@ -222,5 +223,17 @@
   "replay_sync_not_ready": "计分时播放器未就绪",
   "replay_sync_stale": "播放器同步已过期",
   "replay_sync_context_mismatch": "播放器与选手上下文不一致",
-  "replay_sync_media_mismatch": "播放器与绑定视频不一致"
+  "replay_sync_media_mismatch": "播放器与绑定视频不一致",
+  "match_persistence_idle": "等待计分",
+  "match_persistence_saving": "正在保存分数",
+  "match_persistence_saved": "分数已保存",
+  "match_persistence_error": "分数保存失败",
+  "match_worker_idle": "设备已停止",
+  "match_worker_ready": "设备已就绪",
+  "match_worker_reconnecting": "正在重连设备",
+  "match_worker_error": "设备连接异常",
+  "match_media_not_ready": "视频未对齐",
+  "match_media_aligned": "视频已对齐",
+  "match_media_stale": "视频同步已过期",
+  "match_media_context_mismatch": "视频与选手不匹配"
 }

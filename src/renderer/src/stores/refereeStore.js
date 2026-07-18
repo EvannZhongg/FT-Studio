@@ -20,12 +20,9 @@ export const useRefereeStore = defineStore('referee', {
   state: () => ({
     // --- 动态配置 ---
     apiBase: 'http://127.0.0.1:8000',
-    wsUrl: 'ws://127.0.0.1:8000/ws',
     referees: {},
-    isConnected: false,
     matchActive: false,
     matchStatus: initialMatchStatus(),
-    ws: null,
     projectConfig: {name: '', mode: 'FREE', groups: []},
     currentContext: {groupName: '', contestantName: ''},
     appSettings: {
@@ -51,52 +48,10 @@ export const useRefereeStore = defineStore('referee', {
 
           // 更新 API 地址
           this.apiBase = `http://127.0.0.1:${port}`
-          this.wsUrl = `ws://127.0.0.1:${port}/ws`
           console.log(`[Store] Configured API to port ${port}`)
         } catch (e) {
           console.error("Failed to load server config", e)
         }
-      }
-    },
-
-    // --- 1. WebSocket 连接 ---
-    async connectWebSocket() {
-      await this.initConfig()
-      if (this.ws) return
-
-      this.ws = new WebSocket(this.wsUrl)
-
-      this.ws.onopen = () => {
-        this.isConnected = true;
-        console.log('WS Connected')
-      }
-
-      this.ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'score_update' || msg.type === 'status_update') {
-            this.updateScore(msg.payload)
-          } else if (msg.type === 'context_update') {
-            this.currentContext.groupName = msg.payload.group
-            this.currentContext.contestantName = msg.payload.contestant
-          } else if (msg.type === 'groups_update') {
-            if (this.projectConfig) {
-              this.projectConfig.groups = msg.payload.groups
-            }
-          }
-          // 【新增】监听选手已打分广播，同步多端状态
-          else if (msg.type === 'mark_scored') {
-            this.markAsScored(msg.payload.name)
-          }
-        } catch (e) {
-          console.error("WS Message Parse Error", e)
-        }
-      }
-
-      this.ws.onclose = () => {
-        this.isConnected = false
-        this.ws = null
-        setTimeout(() => this.connectWebSocket(), 3000)
       }
     },
 
@@ -237,17 +192,15 @@ export const useRefereeStore = defineStore('referee', {
     // 设置当前比赛上下文 (切换选手/组别时调用)
     async setMatchContext(groupName, contestantName) {
       try {
-        await axios.post(`${this.apiBase}/api/match/set_context`, {
-          group: groupName,
-          contestant: contestantName
-        })
-        if (this.matchActive && window.ftEngine?.match) {
+        if (this.matchActive) {
+          if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
           await window.ftEngine.match.setContext(groupName, contestantName)
         }
         this.currentContext.groupName = groupName
         this.currentContext.contestantName = contestantName
       } catch (e) {
         console.error("Set Context Failed:", e)
+        throw e
       }
     },
 
@@ -303,8 +256,7 @@ export const useRefereeStore = defineStore('referee', {
           this.matchStatus = result.status
           this.matchActive = result.status.state === 'active'
         } else {
-          await axios.post(`${this.apiBase}/setup`, config)
-          this.matchActive = true
+          throw new Error('LOCAL_MATCH_UNAVAILABLE')
         }
       } catch (e) {
         console.error("Setup failed:", e)
@@ -317,8 +269,8 @@ export const useRefereeStore = defineStore('referee', {
 
     async resetAll() {
       try {
-        if (window.ftEngine?.match) await window.ftEngine.match.reset()
-        else await axios.post(`${this.apiBase}/reset`)
+        if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
+        await window.ftEngine.match.reset()
         // 乐观更新
         for (const key in this.referees) {
           this.referees[key].total = 0
@@ -327,6 +279,7 @@ export const useRefereeStore = defineStore('referee', {
         }
       } catch (e) {
         console.error("Reset failed:", e)
+        throw e
       }
     },
 
@@ -338,11 +291,10 @@ export const useRefereeStore = defineStore('referee', {
           if (window.ftEngine?.match) {
             result = await window.ftEngine.match.stop()
           } else {
-            await axios.post(`${this.apiBase}/teardown`)
             result = {
               ok: true,
               worker: {status: 'skipped'},
-              legacy: {status: 'ok'}
+              legacy: {status: 'skipped'}
             }
           }
           if (!result.ok) console.warn("Some device owners did not stop cleanly", result)
@@ -491,8 +443,8 @@ export const useRefereeStore = defineStore('referee', {
 
     async syncMediaPlayback(playback) {
       try {
-        if (window.ftEngine?.match) await window.ftEngine.match.syncPlayback(playback)
-        else await axios.post(`${this.apiBase}/api/media/playback/sync`, playback)
+        if (!window.ftEngine?.match) throw new Error('LOCAL_MATCH_UNAVAILABLE')
+        await window.ftEngine.match.syncPlayback(playback)
       } catch (e) {
         console.debug('Playback sync failed', e)
       }
@@ -543,15 +495,7 @@ export const useRefereeStore = defineStore('referee', {
     },
 
     broadcastPlayerScored(name) {
-      // 1. 本地乐观更新
       this.markAsScored(name)
-      // 2. 发送给后端广播给其他窗口
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({
-          type: 'mark_scored',
-          payload: {name: name}
-        }))
-      }
     },
 
     // 标记选手已完成 (本地更新)

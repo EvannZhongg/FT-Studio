@@ -1,6 +1,6 @@
 # FT Engine 路线 B：剩余重构计划
 
-> 更新基线：2026-07-18，包含当前工作树中尚未提交的 `MatchSessionService`、Worker 批量连接和 SQLite live-managed 改动。本文只维护剩余工作，不重复已完成历史。
+> 更新基线：2026-07-18，包含显式 `MatchSession` 状态机、原子事件持久化、实时状态 IPC 和 legacy 实时传输关闭。本文只维护剩余工作，不重复已完成历史。
 
 当前运行事实见 [当前架构](./ARCHITECTURE_CURRENT_zh.md)，最终边界和目录见 [目标架构](./ARCHITECTURE_TARGET_zh.md)。UI 与用户服务分别见 [UI 交互规范](./UI_INTERACTION_SPEC_zh.md) 和 [Django 用户服务](./BACKEND_DJANGO_zh.md)。
 
@@ -8,18 +8,19 @@
 
 实时比赛已经进入 Electron Main 主路径：Renderer 通过 typed IPC 启动 `MatchSessionService`，Platform Worker 连接设备并发送事件，TypeScript 计分域聚合分数，事件直接写入 SQLite。
 
-但这还不是完整切换：项目创建、继续项目、组别配置、设置、媒体 URL 规范化、导出和部分状态同步仍依赖 FastAPI、JSON/CSV 与 localhost WebSocket。Electron 启动时仍同时启动 FastAPI、Platform Worker 和 SQLite。
+但这还不是完整切换：项目创建、继续项目、组别配置、设置、媒体 URL 规范化和导出仍依赖 FastAPI 与 JSON/CSV。Renderer 已不再创建 localhost WebSocket，实时比赛也不再调用 legacy setup/reset/teardown/context/playback 接口。Electron 启动时仍同时启动 FastAPI、Platform Worker 和 SQLite。
 
 ## 2. P0：稳定实时比赛切换
 
-1. 将“确保赛事上下文 + 写入事件”合并为一个 SQLite 事务，禁止 UI 已更新但事件未落盘。
-2. Worker 事件入口捕获并转换非法 payload、领域校验和数据库异常；不得让 EventEmitter 回调异常进入主进程未捕获路径。
-3. 把持久化失败、Worker 重连失败和媒体未对齐状态发布给 Renderer，计分页必须持续显示保存状态。
-4. 明确 `MatchSession` 的状态机：`idle -> starting -> active -> stopping -> completed/failed`，禁止仅用布尔值表达并发启动、失败回滚和恢复。
-5. 删除 Renderer 对同一上下文的 REST + IPC 双写；比赛激活后只允许 Electron Main 更新上下文。
-6. 补充集成测试：启动中失败、切换选手时并发事件、Worker 重启、SQLite 写入失败、重复事件、停止与重启并发。
+代码级切换已完成：上下文创建与事件追加使用一个 SQLite 事务；内存分数只在插入成功后更新；Worker 事件入口封闭非法 payload、领域和数据库异常；状态机覆盖 `idle/starting/active/stopping/completed/failed`；保存、Worker 和媒体状态通过 IPC 常驻显示；活动比赛只走 Main/Worker，不再走 legacy HTTP/WebSocket。
 
-完成门槛：实时计分不调用 `/setup`、`/reset`、`/teardown`、`/api/match/set_context` 或 legacy `/ws`，且断网和 FastAPI 不可用时仍可完成一场比赛。
+自动测试已覆盖启动失败、切换选手期间事件归属、Worker 重连失败、SQLite 写入失败、重复事件和启停竞争。静态边界测试禁止 Renderer 重新引入 `/setup`、`/reset`、`/teardown`、`/api/match/set_context`、legacy playback sync 或 WebSocket。
+
+P0 剩余发布门槛：
+
+1. 在真实 Electron 中开始比赛后停止 FastAPI，完成计分、切换选手、Reset、结束和 SQLite 复盘查询。
+2. 使用真实 Worker 子进程执行崩溃与有限重启验收，确认状态条和手动恢复路径。
+3. 注入真实 SQLite I/O 故障，确认现场分数保持最后持久化值，并验证恢复后的继续计分策略。
 
 ## 3. P1：项目与本地服务迁入 Main
 
@@ -53,7 +54,7 @@
 | `test_score_snapshot.py` | 暂时保留 | SQLite 事务集成测试覆盖快速事件和上下文切换后删除 |
 | baseline 中 BLE/USB 重连测试 | 应迁移而非直接删除 | 在 Platform Worker 设备服务测试补齐取消重连后，删除 server 版本 |
 | `legacy-shadow-event.test.mjs` 与 `src/main/legacy/shadow-event.mts` | 兼容层 | FastAPI shadow stdout 停止后删除 |
-| `device-lifecycle.test.mjs` 的双所有者断开用例 | 兼容层 | legacy backend 不再持有设备后，改为单 Worker 生命周期测试 |
+| `device-lifecycle.test.mjs` | 已改为单 Worker 生命周期测试 | Platform Worker 生命周期迁入 application service 后随模块移动 |
 | `test_media.py`、`test_storage.py` | 仍有效 | URL/旧 CSV 兼容迁入新模块后迁移用例，不能直接删除 |
 | legacy importer 与测试 | 发布期兼容能力 | 旧项目支持窗口结束且迁移工具独立归档后删除 |
 

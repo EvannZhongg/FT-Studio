@@ -8,9 +8,9 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 项目正在执行路线 B 重构。当前版本是可运行的双链路过渡架构：
 
-- Vue Renderer 的窗口、Overlay、设备、实时比赛和主要历史读取已开始使用受控 IPC。
-- Electron Main 中的 `MatchSessionService` 已接入 Platform Worker、TypeScript 计分域和 SQLite 实时事件写入。
-- Legacy FastAPI 仍负责项目创建/加载、组别、设置、媒体 URL 规范化、WebSocket 兼容和导出。
+- Vue Renderer 的窗口、Overlay、设备、实时比赛和主要历史读取使用受控 IPC。
+- Electron Main 中的 `MatchSessionService` 已接入 Platform Worker、TypeScript 计分域和 SQLite 原子实时事件写入，并向计分页持续发布保存、Worker 和媒体状态。
+- Legacy FastAPI 仍负责项目创建/加载、组别、设置、媒体 URL 规范化和导出；其中硬件与 WebSocket 路由仍存在，但 Electron 实时计分已无调用点。
 - SQLite schema v5 已支持迁移备份、legacy 导入、live-managed 项目、历史读取和实时事件，但新项目仍依赖 legacy 目录作为启动上下文。
 
 实际调用链见 [当前架构](docs/ARCHITECTURE_CURRENT_zh.md)，下一步见 [路线 B 剩余重构计划](docs/REFACTOR_PLAN_ROUTE_B_zh.md)。不要依据目标文档假定 localhost backend 已经移除。
@@ -19,7 +19,7 @@ FT Engine 是面向竞技比赛的 Electron 桌面计分应用，支持 BLE/USB 
 
 - 自由模式和赛事模式。
 - BLE/USB 单机、双机裁判设备。
-- 退出计分或关闭应用时统一关断 BLE/USB 会话。
+- 退出计分或关闭应用时由 Platform Worker 关断 BLE/USB 会话。
 - 实时分数、重点扣分、波形和选手切换。
 - OBS 友好的透明悬浮窗与窗口定位。
 - YouTube 视频计分、播放器时间锚点和视频复盘悬浮分数。

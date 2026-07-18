@@ -101,6 +101,7 @@
 
   "sb_btn_stop": "Stop",
   "sb_lbl_auto": "Auto",
+  "chk_auto_next": "Automatically continue to the next contestant",
   "sb_btn_overlay": "Overlay",
   "sb_btn_finish": "Finish",
   "sb_btn_next": "Next",
@@ -222,5 +223,17 @@
   "replay_sync_not_ready": "The player was not ready when scored",
   "replay_sync_stale": "Playback synchronization expired",
   "replay_sync_context_mismatch": "Player and contestant context did not match",
-  "replay_sync_media_mismatch": "Player and bound video did not match"
+  "replay_sync_media_mismatch": "Player and bound video did not match",
+  "match_persistence_idle": "Waiting for score",
+  "match_persistence_saving": "Saving score",
+  "match_persistence_saved": "Score saved",
+  "match_persistence_error": "Save failed",
+  "match_worker_idle": "Devices stopped",
+  "match_worker_ready": "Devices ready",
+  "match_worker_reconnecting": "Reconnecting devices",
+  "match_worker_error": "Device connection error",
+  "match_media_not_ready": "Video not aligned",
+  "match_media_aligned": "Video aligned",
+  "match_media_stale": "Video sync expired",
+  "match_media_context_mismatch": "Video context mismatch"
 }

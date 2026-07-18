@@ -61,12 +61,11 @@ const isOverlayWindow = computed(() => {
   return new URLSearchParams(window.location.search).get('mode') === 'overlay'
 })
 
-onMounted(() => {
+onMounted(async () => {
   document.title = isOverlayWindow.value ? 'FT Engine Overlay' : 'FT Engine'
 
-  // 1. 建立 WebSocket 连接 (原有逻辑)
-  store.connectWebSocket()
-  store.connectMatchEvents()
+  await store.initConfig()
+  await store.connectMatchEvents()
 
   // 2. 自动更新监听逻辑 (新增)
   // 仅在 Electron 环境下运行

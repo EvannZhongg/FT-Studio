@@ -112,33 +112,11 @@ function getAppConfig() {
 
 const appConfig = getAppConfig()
 
-async function disconnectLegacyDevices() {
-  let lastError = null
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${appConfig.port}/teardown`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(2500)
-      })
-      const result = await response.json()
-      if (!response.ok || result?.status !== 'ok') throw new Error('Legacy teardown rejected')
-      return
-    } catch (error) {
-      lastError = error
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-  }
-  const error = new Error(lastError?.message || 'Legacy teardown failed')
-  error.code = 'LEGACY_TEARDOWN_FAILED'
-  throw error
-}
-
 const deviceLifecycle = new DeviceLifecycle({
   disconnectWorker: async () => {
     if (!platformWorker) return { skipped: true }
     await platformWorker.request('device.disconnectAll', {}, 5000)
   },
-  disconnectLegacy: disconnectLegacyDevices,
   onStopped: (reason, result) => {
     const message = `Device shutdown (${reason}): worker=${result.worker.status}, legacy=${result.legacy.status}`
     console.log('[Electron]', message)
@@ -691,11 +669,12 @@ app.whenReady().then(async () => {
       input?.sourceKey
     )
     if (!imported.found) throw new Error('MATCH_PROJECT_NOT_FOUND')
+    const result = await matchSession.start(input)
     if (!localDatabase.markLegacyProjectLive(input.sourceKey)) {
+      await stopDeviceSessions('match-start-rollback')
       throw new Error('MATCH_PROJECT_NOT_FOUND')
     }
-    await disconnectLegacyDevices()
-    return matchSession.start(input)
+    return result
   })
 
   ipcMain.handle(IPC_CHANNELS.match.setContext, async (event, groupName, contestantName) => {
@@ -838,6 +817,9 @@ app.whenReady().then(async () => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win && win.initialOverlayData) {
       win.webContents.send(IPC_CHANNELS.overlay.initialData, win.initialOverlayData)
+    }
+    if (win) {
+      win.webContents.send(IPC_CHANNELS.match.statusUpdated, matchSession.getStatus())
     }
   })
 

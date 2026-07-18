@@ -101,6 +101,7 @@
 
   "sb_btn_stop": "停止",
   "sb_lbl_auto": "自動",
+  "chk_auto_next": "完了後に次の選手へ自動で切り替える",
   "sb_btn_overlay": "オーバーレイ",
   "sb_btn_finish": "完了",
   "sb_btn_next": "次へ",
@@ -222,5 +223,17 @@
   "replay_sync_not_ready": "採点時にプレーヤーが未準備でした",
   "replay_sync_stale": "再生同期の有効期限が切れました",
   "replay_sync_context_mismatch": "プレーヤーと選手が一致しませんでした",
-  "replay_sync_media_mismatch": "プレーヤーと設定動画が一致しませんでした"
+  "replay_sync_media_mismatch": "プレーヤーと設定動画が一致しませんでした",
+  "match_persistence_idle": "採点待機中",
+  "match_persistence_saving": "スコアを保存中",
+  "match_persistence_saved": "スコア保存済み",
+  "match_persistence_error": "スコア保存エラー",
+  "match_worker_idle": "デバイス停止中",
+  "match_worker_ready": "デバイス準備完了",
+  "match_worker_reconnecting": "デバイス再接続中",
+  "match_worker_error": "デバイス接続エラー",
+  "match_media_not_ready": "動画未同期",
+  "match_media_aligned": "動画同期済み",
+  "match_media_stale": "動画同期期限切れ",
+  "match_media_context_mismatch": "動画と選手が一致しません"
 }

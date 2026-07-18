@@ -4,20 +4,19 @@ import test from 'node:test'
 import { DeviceLifecycle } from '../src/main/match/device-lifecycle.mjs'
 
 
-test('disconnects worker and legacy device owners together', async () => {
+test('disconnects the worker without calling a legacy device owner', async () => {
   const calls = []
   const lifecycle = new DeviceLifecycle({
-    disconnectWorker: async () => calls.push('worker'),
-    disconnectLegacy: async () => calls.push('legacy')
+    disconnectWorker: async () => calls.push('worker')
   })
 
   const result = await lifecycle.stop('score-page-exit')
 
-  assert.deepEqual(new Set(calls), new Set(['worker', 'legacy']))
+  assert.deepEqual(calls, ['worker'])
   assert.deepEqual(result, {
     ok: true,
     worker: { status: 'ok' },
-    legacy: { status: 'ok' }
+    legacy: { status: 'skipped' }
   })
 })
 
@@ -41,21 +40,18 @@ test('coalesces concurrent stop requests', async () => {
   assert.equal(workerCalls, 1)
 })
 
-test('reports one owner failure without skipping the other owner', async () => {
-  let legacyCalled = false
+test('reports a worker shutdown failure', async () => {
   const lifecycle = new DeviceLifecycle({
     disconnectWorker: async () => {
       const error = new Error('worker timed out')
       error.code = 'WORKER_TIMEOUT'
       throw error
-    },
-    disconnectLegacy: async () => { legacyCalled = true }
+    }
   })
 
   assert.deepEqual(await lifecycle.stop(), {
     ok: false,
     worker: { status: 'error', error: 'WORKER_TIMEOUT' },
-    legacy: { status: 'ok' }
+    legacy: { status: 'skipped' }
   })
-  assert.equal(legacyCalled, true)
 })
