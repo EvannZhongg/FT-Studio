@@ -27,6 +27,7 @@ export const useRefereeStore = defineStore('referee', {
     currentContext: {groupName: '', contestantName: ''},
     appSettings: {
       language: 'zh',
+      reset_shortcut: 'Ctrl+G',
       suppress_reset_confirm: false,
       suppress_zero_confirm: false,
       device_remarks: {},
@@ -91,33 +92,35 @@ export const useRefereeStore = defineStore('referee', {
     // --- 2. 全局设置管理 ---
     async fetchSettings() {
       try {
-        const res = await axios.get(`${this.apiBase}/api/settings`)
-        this.appSettings = {...this.appSettings, ...res.data}
+        if (!window.ftEngine?.settings) throw new Error('LOCAL_SETTINGS_UNAVAILABLE')
+        const settings = await window.ftEngine.settings.get()
+        this.appSettings = {...this.appSettings, ...settings}
       } catch (e) {
         console.error("Failed to fetch settings:", e)
       }
     },
 
     async updateSetting(key, value) {
+      const previous = this.appSettings[key]
+      this.appSettings[key] = value
       try {
-        const payload = {}
-        payload[key] = value
-        this.appSettings[key] = value
-        await axios.post(`${this.apiBase}/api/settings/update`, payload)
+        if (!window.ftEngine?.settings) throw new Error('LOCAL_SETTINGS_UNAVAILABLE')
+        this.appSettings = await window.ftEngine.settings.set(key, value)
+        return true
       } catch (e) {
+        this.appSettings[key] = previous
         console.error("Failed to update setting:", e)
+        return false
       }
     },
 
     // 【新增】保存设备备注
     async saveDeviceRemark(address, remark) {
-      if (!this.appSettings.device_remarks) {
-        this.appSettings.device_remarks = {}
-      }
-      // 更新本地状态
-      this.appSettings.device_remarks[address] = remark
-      // 同步到后端
-      await this.updateSetting('device_remarks', this.appSettings.device_remarks)
+      const remarks = {...(this.appSettings.device_remarks || {})}
+      remarks[address] = remark
+      const saved = await this.updateSetting('device_remarks', remarks)
+      if (!saved) throw new Error('DEVICE_REMARK_SAVE_FAILED')
+      return true
     },
 
     getProjectPreference(dirName, key, defaultValue = null) {
@@ -127,15 +130,9 @@ export const useRefereeStore = defineStore('referee', {
 
     async updateProjectPreference(dirName, key, value) {
       if (!dirName) return
-      if (!this.appSettings.project_preferences) {
-        this.appSettings.project_preferences = {}
-      }
-      if (!this.appSettings.project_preferences[dirName]) {
-        this.appSettings.project_preferences[dirName] = {}
-      }
-
-      this.appSettings.project_preferences[dirName][key] = value
-      await this.updateSetting('project_preferences', this.appSettings.project_preferences)
+      const preferences = {...(this.appSettings.project_preferences || {})}
+      preferences[dirName] = {...(preferences[dirName] || {}), [key]: value}
+      return this.updateSetting('project_preferences', preferences)
     },
 
     async renameDevices(devices) {
@@ -529,13 +526,14 @@ export const useRefereeStore = defineStore('referee', {
           deleted = res.data.status === 'ok'
         }
         if (deleted && this.appSettings.project_preferences) {
-          delete this.appSettings.project_preferences[dirName]
-          if (deletedViaIpc) {
-            try {
-              await this.updateSetting('project_preferences', this.appSettings.project_preferences)
-            } catch (e) {
-              console.error("Project deleted but preference cleanup failed", e)
-            }
+          const preferences = {...this.appSettings.project_preferences}
+          delete preferences[dirName]
+          const preferencesUpdated = await this.updateSetting(
+            'project_preferences',
+            preferences
+          )
+          if (!preferencesUpdated) {
+            console.error("Project deleted but preference cleanup failed")
           }
         }
         return deleted

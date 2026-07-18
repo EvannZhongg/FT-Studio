@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import {
+  createDefaultAppSettings,
+  isAppSettingKey,
+  normalizeAppSetting,
+  type AppSettings
+} from '../application/settings/app-settings.mts'
 
 export const LATEST_SCHEMA_VERSION = 5
 
@@ -436,6 +442,41 @@ export class LocalDatabase {
 
   appendScoreEvent(event: StoredScoreEvent): boolean {
     return this.insertScoreEvent(this.requireDatabase(), event)
+  }
+
+  getAppSettings(): AppSettings {
+    const settings = createDefaultAppSettings()
+    const rows = this.requireDatabase()
+      .prepare('SELECT key, value_json FROM app_settings')
+      .all() as Array<{ key: string; value_json: string }>
+    for (const row of rows) {
+      if (!isAppSettingKey(row.key)) continue
+      try {
+        Object.assign(settings, {
+          [row.key]: normalizeAppSetting(row.key, JSON.parse(row.value_json))
+        })
+      } catch {
+        // Ignore corrupt rows and keep the stable default for that key.
+      }
+    }
+    return settings
+  }
+
+  setAppSetting(key: string, value: unknown): AppSettings {
+    if (!isAppSettingKey(key)) throw new Error('SETTINGS_KEY_INVALID')
+    const normalized = normalizeAppSetting(key, value)
+    this.requireDatabase()
+      .prepare(
+        `
+      INSERT INTO app_settings (key, value_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at
+    `
+      )
+      .run(key, JSON.stringify(normalized), new Date().toISOString())
+    return this.getAppSettings()
   }
 
   getScoreEvents(): StoredScoreEvent[] {

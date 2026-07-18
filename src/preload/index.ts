@@ -30,6 +30,10 @@ const IPC_CHANNELS = {
     scan: 'devices:scan',
     rename: 'devices:rename'
   },
+  settings: {
+    get: 'settings:get',
+    set: 'settings:set'
+  },
   match: {
     start: 'match:start',
     getStatus: 'match:get-status',
@@ -96,6 +100,10 @@ const ftEngine = {
   devices: {
     scan: (options) => ipcRenderer.invoke(IPC_CHANNELS.devices.scan, options),
     rename: (requests) => ipcRenderer.invoke(IPC_CHANNELS.devices.rename, requests)
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.settings.get),
+    set: (key, value) => ipcRenderer.invoke(IPC_CHANNELS.settings.set, key, value)
   },
   match: {
     start: (input) => ipcRenderer.invoke(IPC_CHANNELS.match.start, input),

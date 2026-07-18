@@ -660,6 +660,18 @@ app.whenReady().then(async () => {
     }))
   })
 
+  ipcMain.handle(IPC_CHANNELS.settings.get, (event) => {
+    assertMainSender(event)
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.getAppSettings()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.settings.set, (event, key, value) => {
+    assertMainSender(event)
+    if (!localDatabase) throw new Error('DATABASE_NOT_READY')
+    return localDatabase.setAppSetting(key, value)
+  })
+
   ipcMain.handle(IPC_CHANNELS.match.start, async (event, input) => {
     assertMainSender(event)
     if (!localDatabase) throw new Error('DATABASE_NOT_READY')

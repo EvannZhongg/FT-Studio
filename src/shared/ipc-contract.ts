@@ -25,6 +25,10 @@ export const IPC_CHANNELS = {
     scan: 'devices:scan',
     rename: 'devices:rename'
   },
+  settings: {
+    get: 'settings:get',
+    set: 'settings:set'
+  },
   match: {
     start: 'match:start',
     getStatus: 'match:get-status',
@@ -130,6 +134,18 @@ export interface DeviceRenameResult extends DeviceRenameRequest {
   status: 'ok' | 'error'
   error?: string
 }
+
+export interface AppSettings {
+  language: 'zh' | 'en' | 'ja'
+  reset_shortcut: string
+  suppress_reset_confirm: boolean
+  suppress_zero_confirm: boolean
+  device_remarks: Record<string, string>
+  obs_protect_main: boolean
+  project_preferences: Record<string, Record<string, string | number | boolean | null>>
+}
+
+export type AppSettingKey = keyof AppSettings
 
 export interface MatchRefereeBinding {
   index: number
@@ -269,6 +285,10 @@ export interface FtEngineApi {
       remarks: Record<string, string>
     }) => Promise<DeviceScanResult>
     rename: (requests: DeviceRenameRequest[]) => Promise<DeviceRenameResult[]>
+  }
+  settings: {
+    get: () => Promise<AppSettings>
+    set: <K extends AppSettingKey>(key: K, value: AppSettings[K]) => Promise<AppSettings>
   }
   match: {
     start: (input: MatchStartInput) => Promise<{

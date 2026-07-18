@@ -8,7 +8,6 @@ import test from 'node:test'
 
 import { LATEST_SCHEMA_VERSION, LocalDatabase } from '../src/main/persistence/local-database.mts'
 
-
 const tempRoots = []
 
 function createDatabase() {
@@ -32,9 +31,19 @@ test('creates the versioned local schema', () => {
     assert.equal(database.getSchemaVersion(), LATEST_SCHEMA_VERSION)
     const tables = database.listTableNames()
     for (const table of [
-      'competitions', 'stages', 'competition_groups', 'contestants', 'referees',
-      'device_bindings', 'match_sessions', 'score_events', 'media_bindings',
-      'app_settings', 'share_drafts', 'upload_tasks', 'legacy_imports'
+      'competitions',
+      'stages',
+      'competition_groups',
+      'contestants',
+      'referees',
+      'device_bindings',
+      'match_sessions',
+      'score_events',
+      'media_bindings',
+      'app_settings',
+      'share_drafts',
+      'upload_tasks',
+      'legacy_imports'
     ]) {
       assert.ok(tables.includes(table), `missing table: ${table}`)
     }
@@ -90,6 +99,66 @@ test('rejects invalid events before writing', () => {
   try {
     assert.throws(() => database.appendScoreEvent({ eventId: 'invalid' }), /Invalid score event/)
     assert.deepEqual(database.getScoreEvents(), [])
+  } finally {
+    database.close()
+  }
+})
+
+test('persists validated application settings in SQLite', () => {
+  const { database } = createDatabase()
+  database.open()
+  try {
+    assert.deepEqual(database.getAppSettings(), {
+      language: 'zh',
+      reset_shortcut: 'Ctrl+G',
+      suppress_reset_confirm: false,
+      suppress_zero_confirm: false,
+      device_remarks: {},
+      obs_protect_main: false,
+      project_preferences: {}
+    })
+    database.setAppSetting('language', 'ja')
+    database.setAppSetting('suppress_zero_confirm', true)
+    database.setAppSetting('device_remarks', { 'device-1': 'Judge A' })
+    database.setAppSetting('project_preferences', {
+      '20260718_Demo': { show_penalty: true }
+    })
+  } finally {
+    database.close()
+  }
+
+  database.open()
+  try {
+    assert.deepEqual(database.getAppSettings(), {
+      language: 'ja',
+      reset_shortcut: 'Ctrl+G',
+      suppress_reset_confirm: false,
+      suppress_zero_confirm: true,
+      device_remarks: { 'device-1': 'Judge A' },
+      obs_protect_main: false,
+      project_preferences: {
+        '20260718_Demo': { show_penalty: true }
+      }
+    })
+  } finally {
+    database.close()
+  }
+})
+
+test('rejects unknown or unbounded application settings', () => {
+  const { database } = createDatabase()
+  database.open()
+  try {
+    assert.throws(() => database.setAppSetting('unknown', true), /SETTINGS_KEY_INVALID/)
+    assert.throws(() => database.setAppSetting('language', 'unknown'), /SETTINGS_VALUE_INVALID/)
+    assert.throws(
+      () => database.setAppSetting('device_remarks', { device: 'x'.repeat(257) }),
+      /SETTINGS_VALUE_INVALID/
+    )
+    assert.throws(
+      () => database.setAppSetting('project_preferences', { project: { nested: {} } }),
+      /SETTINGS_VALUE_INVALID/
+    )
   } finally {
     database.close()
   }
