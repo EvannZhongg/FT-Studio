@@ -227,7 +227,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <style scoped>
-.score-overlay-panel { min-width: 0; color: var(--workbench-text); }
+.score-overlay-panel { min-width: 0; color: #f4f4f5; }
 .score-overlay-panel.draggable { position: absolute; inset: 0; box-sizing: border-box; pointer-events: none; user-select: none; }
 .panel-header { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .drag-icon { flex: 0 0 auto; margin-left: 3px; }
@@ -236,11 +236,11 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 .panel-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
 .overlay-score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .draggable .overlay-score-grid { position: absolute; inset: 0; display: block; pointer-events: none; }
-.overlay-score-card { min-width: 0; min-height: 94px; box-sizing: border-box; display: flex; flex-direction: column; padding: 10px 12px; border-left: 4px solid var(--workbench-accent); border-radius: 4px; background: color-mix(in srgb, var(--workbench-surface) 92%, transparent); box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.35); }
+.overlay-score-card { min-width: 0; min-height: 94px; box-sizing: border-box; display: flex; flex-direction: column; padding: 10px 12px; border-left: 4px solid #3498db; border-radius: 4px; background: rgba(20, 20, 20, 0.85); box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px); }
 .draggable .overlay-score-card { position: absolute; width: 168px; min-height: 94px; padding: 8px 10px; pointer-events: auto; }
-.referee-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--workbench-border); color: var(--workbench-text-secondary); font-size: 0.76rem; }
+.referee-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 5px; border-bottom: 1px solid #444; color: #aaa; font-size: 0.76rem; }
 .referee-header.drag-handle { cursor: grab; touch-action: none; }
-.overlay-score-card.dragging .referee-header.drag-handle { color: var(--workbench-text); cursor: grabbing; }
+.overlay-score-card.dragging .referee-header.drag-handle { color: #f4f4f5; cursor: grabbing; }
 .referee-tools { display: inline-flex; align-items: center; gap: 5px; }
 .connection-status { display: inline-flex; gap: 4px; }
 .connection-status span { width: 6px; height: 6px; border-radius: 50%; background: #666; }

@@ -189,13 +189,33 @@
           </button>
         </div>
 
-        <select v-if="presentationMode === 'window'" v-model="selectedTargetWindow" class="win-select">
-          <option value="" disabled>{{ $t('sb_opt_sel_app') }}</option>
-          <option value="FULL_SCREEN">{{ $t('sb_opt_full_screen') }}</option>
-          <option v-for="w in windowList" :key="w.windowId" :value="w.windowId">
-            {{ w.title }}
-          </option>
-        </select>
+        <div v-if="presentationMode === 'window'" class="window-picker">
+          <button
+            class="win-select"
+            type="button"
+            :aria-expanded="windowPickerOpen"
+            aria-haspopup="listbox"
+            @click="windowPickerOpen = !windowPickerOpen"
+            @keydown.esc.stop="windowPickerOpen = false"
+          >
+            <span :class="{ placeholder: !selectedTargetWindow }">{{ selectedTargetWindowLabel }}</span>
+            <ChevronDown :size="16" aria-hidden="true" />
+          </button>
+          <div v-if="windowPickerOpen" class="window-option-list" role="listbox" :aria-label="$t('sb_opt_sel_app')">
+            <button
+              v-for="option in windowOptions"
+              :key="option.value"
+              type="button"
+              role="option"
+              :aria-selected="selectedTargetWindow === option.value"
+              :class="{ selected: selectedTargetWindow === option.value }"
+              :title="option.label"
+              @click="selectTargetWindow(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
 
         <div v-else class="video-binding-form">
           <label>{{ store.currentContext.contestantName }}</label>
@@ -343,7 +363,7 @@ import { useDeviceStore } from '../stores/deviceStore'
 import { useMatchStore } from '../stores/matchStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Ban, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
+import { ArrowLeft, Ban, ChevronDown, Cpu, Database, Layers3, Link2, Monitor, PictureInPicture2, RotateCcw, Video, Youtube, Zap } from 'lucide-vue-next'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
 import ScoreDisplayModeSwitch from './ScoreDisplayModeSwitch.vue'
 import YouTubePlayer from './YouTubePlayer.vue'
@@ -369,6 +389,7 @@ const dontAskZeroTemp = ref(false)
 const showWindowSelector = ref(false)
 const windowList = ref([])
 const selectedTargetWindow = ref("")
+const windowPickerOpen = ref(false)
 const presentationMode = ref('window')
 const showVideoWorkspace = ref(false)
 const videoDisplayMode = ref('COMBINED')
@@ -398,6 +419,13 @@ const currentBinding = computed(() => {
   return competitionStore.projectConfig.media?.[group]?.[contestant] || null
 })
 const currentVideoId = computed(() => currentBinding.value?.video_id || '')
+const windowOptions = computed(() => [
+  { value: 'FULL_SCREEN', label: t('sb_opt_full_screen') },
+  ...windowList.value.map((item) => ({ value: item.windowId, label: item.title }))
+])
+const selectedTargetWindowLabel = computed(() =>
+  windowOptions.value.find((option) => option.value === selectedTargetWindow.value)?.label || t('sb_opt_sel_app')
+)
 const canConfirmPresentation = computed(() =>
   presentationMode.value === 'video' ? Boolean(videoUrl.value) : Boolean(selectedTargetWindow.value)
 )
@@ -411,6 +439,7 @@ watch(
   },
   { immediate: true }
 )
+watch(showWindowSelector, (open) => { if (!open) windowPickerOpen.value = false })
 
 const saveVideoBinding = async () => {
   if (!store.currentContext.contestantName || !videoUrl.value) return false
@@ -695,10 +724,15 @@ const handleGlobalKeydown = (e) => {
 
 const selectPresentationMode = async (mode) => {
   presentationMode.value = mode
+  windowPickerOpen.value = false
   mediaError.value = ''
   if (mode === 'window' && windowList.value.length === 0) {
     windowList.value = await deviceStore.fetchWindows()
   }
+}
+const selectTargetWindow = (value) => {
+  selectedTargetWindow.value = value
+  windowPickerOpen.value = false
 }
 
 const openPresentationSelector = async (mode = null) => {
@@ -808,7 +842,14 @@ const confirmOverlay = async () => {
 .invalidate-context { margin: 16px 0; padding: 12px; border: 1px solid #464646; background: #222; display: flex; flex-direction: column; gap: 4px; text-align: left; strong { color: white; } span { color: #aaa; font-size: 0.82rem; } }
 .btn-cancel { background: #555; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; }
 .large { width: 100%; margin-bottom: 10px; padding: 12px; font-size: 1rem; }
-.win-select { width: 100%; padding: 8px; margin: 15px 0; background: #111; color: white; border: 1px solid #444; }
+.window-picker { position: relative; width: 100%; min-width: 0; margin: 15px 0; text-align: left; }
+.win-select { width: 100%; min-width: 0; height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; border: 1px solid #444; border-radius: 4px; background: #111; color: white; cursor: pointer; }
+.win-select span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.win-select span.placeholder, .win-select svg { color: #8d929b; }
+.win-select svg { flex: 0 0 auto; }
+.window-option-list { position: absolute; z-index: 4; top: calc(100% + 4px); left: 0; right: 0; width: 100%; max-width: 100%; max-height: min(220px, calc(100vh - 300px)); min-height: 38px; overflow-x: hidden; overflow-y: auto; padding: 4px; border: 1px solid #444; border-radius: 4px; background: #17181a; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.48); }
+.window-option-list button { width: 100%; min-width: 0; height: 34px; display: block; overflow: hidden; padding: 0 8px; border: 0; border-radius: 3px; background: transparent; color: #d8dade; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.window-option-list button:hover, .window-option-list button:focus-visible, .window-option-list button.selected { outline: none; background: var(--workbench-accent-soft); color: #fff; }
 .dont-ask-label { display: block; margin-top: 15px; color: #aaa; cursor: pointer; input { margin-right: 5px; } }
 
 /* 【修改】重点扣分样式 - 使用与 .btn-zero 相似的醒目红色 */
