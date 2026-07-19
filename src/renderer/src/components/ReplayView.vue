@@ -70,6 +70,8 @@
               :contestant="selectedContestant"
               :display-mode="replayDisplayMode"
               :show-header="false"
+              draggable
+              position-key="replay-score-overlay-position"
             />
           </section>
 
@@ -292,12 +294,13 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 </script>
 
 <style scoped>
-.replay-view { height: 100%; display: flex; flex-direction: column; background: var(--workbench-bg); color: var(--workbench-text); }
-.replay-header { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--workbench-border-subtle); box-sizing: border-box; }
-.replay-header > .score-display-mode-switch { margin-left: auto; }
-.replay-header h2 { margin: 0; font-size: 1.05rem; letter-spacing: 0; }
-.replay-subtitle { color: var(--workbench-muted); font-size: 0.76rem; margin-top: 2px; }
-.back-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--workbench-border); border-radius: 5px; background: var(--workbench-surface-raised); color: var(--workbench-text); cursor: pointer; }
+.replay-view { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--workbench-bg); color: var(--workbench-text); }
+.replay-header { position: absolute; top: 14px; left: 236px; right: calc(min(380px, 32vw) + 16px); z-index: 10; min-height: 36px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; pointer-events: none; }
+.replay-header > button, .replay-header > .score-display-mode-switch { pointer-events: auto; }
+.replay-header h2 { margin: 0; color: rgba(255, 255, 255, 0.62); font-size: 1.05rem; letter-spacing: 0; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7); }
+.replay-subtitle { color: rgba(255, 255, 255, 0.5); font-size: 0.76rem; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7); }
+.back-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: rgba(255, 255, 255, 0.56); cursor: pointer; transition: color 0.16s ease, background-color 0.16s ease; }
+.back-button:hover, .back-button:focus-visible { outline: none; background: rgba(255, 255, 255, 0.12); color: #fff; }
 .replay-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
 .replay-sidebar { padding: 18px 14px; border-right: 1px solid var(--workbench-border-subtle); background: var(--workbench-surface); overflow-y: auto; }
 .replay-sidebar label { display: block; margin-bottom: 16px; }
@@ -305,7 +308,7 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 .replay-sidebar select { width: 100%; height: 34px; border: 1px solid var(--workbench-border); border-radius: 4px; background: var(--workbench-input); color: var(--workbench-text); padding: 0 8px; }
 .replay-main { position: relative; min-width: 0; min-height: 0; display: block; box-sizing: border-box; overflow: hidden; }
 .replay-media { position: absolute; inset: 0; min-width: 0; height: 100%; }
-.replay-score-overlay { position: absolute; top: 70px; left: 18px; right: min(398px, 34vw); z-index: 4; pointer-events: none; }
+.replay-score-overlay { z-index: 6; }
 .timeline { position: absolute; top: 0; right: 0; bottom: 0; width: min(380px, 32vw); min-width: 320px; display: flex; flex-direction: column; border-left: 1px solid var(--workbench-border-subtle); padding: 18px; box-sizing: border-box; background: color-mix(in srgb, var(--workbench-surface) 92%, transparent); backdrop-filter: blur(10px); z-index: 5; }
 .timeline-header { min-height: 32px; display: flex; justify-content: space-between; align-items: center; }
 .timeline-header h3 { margin: 0; font-size: 0.95rem; letter-spacing: 0; }
@@ -323,7 +326,10 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 .timeline-empty, .empty-replay { color: var(--workbench-muted); display: flex; align-items: center; justify-content: center; min-height: 160px; }
 .empty-replay { grid-column: 1 / -1; flex-direction: column; gap: 10px; }
 @media (max-width: 900px) {
-  .replay-score-overlay { right: 18px; }
+  .replay-header { right: 16px; }
   .timeline { top: auto; left: 0; width: 100%; min-width: 0; height: min(42%, 360px); border-left: 0; border-top: 1px solid var(--workbench-border-subtle); padding: 12px 18px; }
+}
+@media (max-width: 700px) {
+  .replay-header h2, .replay-subtitle { display: none; }
 }
 </style>

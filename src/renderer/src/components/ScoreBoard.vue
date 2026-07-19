@@ -140,6 +140,8 @@
           :contestant="store.currentContext.contestantName"
           :display-mode="videoDisplayMode"
           :show-header="false"
+          draggable
+          position-key="video-score-overlay-position"
         />
       </div>
     </div>
@@ -752,12 +754,12 @@ const confirmOverlay = async () => {
 .video-workspace { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; box-sizing: border-box; overflow: hidden; }
 .video-workspace-toolbar { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 20; min-height: 36px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 34px; align-items: center; gap: 10px; pointer-events: none; }
 .video-workspace-toolbar > * { pointer-events: auto; }
-.workspace-title { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--workbench-text); font-size: 0.9rem; font-weight: 650; text-shadow: 0 1px 8px color-mix(in srgb, var(--workbench-bg) 80%, transparent); }
-.workspace-icon-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--workbench-border); border-radius: 5px; background: var(--workbench-surface-raised); color: var(--workbench-text-secondary); cursor: pointer; }
-.workspace-icon-button:hover { background: var(--workbench-surface-hover); color: var(--workbench-text); }
+.workspace-title { display: flex; align-items: center; justify-content: center; gap: 8px; color: rgba(255, 255, 255, 0.56); font-size: 0.9rem; font-weight: 650; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7); }
+.workspace-icon-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: rgba(255, 255, 255, 0.56); cursor: pointer; transition: color 0.16s ease, background-color 0.16s ease; }
+.workspace-icon-button:hover, .workspace-icon-button:focus-visible { outline: none; background: rgba(255, 255, 255, 0.12); color: #fff; }
 .video-score-layout { position: relative; flex: 1; min-height: 0; display: block; }
 .workspace-player { width: 100%; height: 100%; min-width: 0; }
-.video-score-layout > .score-overlay-panel { position: absolute; top: 70px; left: 18px; right: 18px; z-index: 10; pointer-events: none; }
+.video-score-layout > .score-overlay-panel { z-index: 10; }
 .video-score-layout > .score-overlay-panel :deep(.overlay-score-card) { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32); }
 .bind-video-command { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); width: min(320px, calc(100% - 40px)); min-height: 36px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--workbench-accent); border-radius: 5px; background: color-mix(in srgb, var(--workbench-accent-soft) 92%, transparent); color: var(--workbench-text); cursor: pointer; }
 .score-card { background: #ecf0f1; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); color: #2c3e50; .card-top { width: 100%; display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9rem; font-weight: bold; } .status-indicators { display: flex; gap: 4px; } .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bdc3c7; &.connected { background: #2ecc71; } } .score-main { font-size: 4rem; font-weight: 800; line-height: 1; margin: 10px 0; } .score-detail { font-size: 1rem; color: #666; background: #ddd; padding: 2px 10px; border-radius: 10px; } }
@@ -795,6 +797,5 @@ const confirmOverlay = async () => {
 @media (max-width: 780px) {
   .video-workspace-toolbar { left: 10px; right: 10px; }
   .workspace-title span { display: none; }
-  .video-score-layout > .score-overlay-panel { left: 10px; right: 10px; }
 }
 </style>

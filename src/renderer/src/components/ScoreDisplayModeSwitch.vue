@@ -57,22 +57,22 @@ watch(
   flex: 0 0 auto;
   display: inline-flex;
   overflow: hidden;
-  border: 1px solid var(--workbench-border);
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: color-mix(in srgb, var(--workbench-surface) 88%, transparent);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  background: transparent;
 }
 .score-display-mode-switch button {
   min-height: 30px;
   padding: 0 9px;
   border: 0;
-  border-right: 1px solid var(--workbench-border);
   background: transparent;
-  color: var(--workbench-muted-strong);
+  color: rgba(255, 255, 255, 0.56);
   font-size: 0.7rem;
   cursor: pointer;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+  transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
-.score-display-mode-switch button:last-child { border-right: 0; }
-.score-display-mode-switch button:hover { background: var(--workbench-surface-hover); color: var(--workbench-text); }
-.score-display-mode-switch button.active { background: var(--workbench-accent); color: #fff; }
+.score-display-mode-switch button.active { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.76); box-shadow: inset 0 -2px rgba(255, 255, 255, 0.52); }
+.score-display-mode-switch button:hover,
+.score-display-mode-switch button:focus-visible { outline: none; background: rgba(255, 255, 255, 0.12); color: #fff; box-shadow: inset 0 -2px #fff; }
 </style>
