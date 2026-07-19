@@ -1,5 +1,23 @@
 @import './base.css';
 
+:root {
+  --workbench-bg: #18191b;
+  --workbench-surface: #202124;
+  --workbench-surface-raised: #242529;
+  --workbench-input: #151618;
+  --workbench-border: #414349;
+  --workbench-border-subtle: #34363a;
+  --workbench-text: #f4f4f5;
+  --workbench-text-secondary: #d8dade;
+  --workbench-muted: #858b94;
+  --workbench-accent: #5f8d79;
+  --score-text: #f4f4f5;
+  --score-text-secondary: #d8dade;
+  --score-positive: #73c997;
+  --score-negative: #ff7f7f;
+  --score-divider: #666b72;
+}
+
 :root,
 :root[data-theme='light'] {
   color-scheme: light;

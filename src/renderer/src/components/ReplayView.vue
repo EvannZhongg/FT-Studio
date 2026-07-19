@@ -287,24 +287,24 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 </script>
 
 <style scoped>
-.replay-view { height: 100%; display: flex; flex-direction: column; background: #18191b; color: #f4f4f5; }
-.replay-header { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid #34363a; box-sizing: border-box; }
+.replay-view { height: 100%; display: flex; flex-direction: column; background: var(--workbench-bg); color: var(--workbench-text); }
+.replay-header { height: 64px; flex: 0 0 64px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--workbench-border-subtle); box-sizing: border-box; }
 .replay-header h2 { margin: 0; font-size: 1.05rem; letter-spacing: 0; }
-.replay-subtitle { color: #858b94; font-size: 0.76rem; margin-top: 2px; }
-.back-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #414349; border-radius: 5px; background: #242529; color: #eee; cursor: pointer; }
+.replay-subtitle { color: var(--workbench-muted); font-size: 0.76rem; margin-top: 2px; }
+.back-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--workbench-border); border-radius: 5px; background: var(--workbench-surface-raised); color: var(--workbench-text); cursor: pointer; }
 .replay-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-.replay-sidebar { padding: 18px 14px; border-right: 1px solid #34363a; background: #202124; overflow-y: auto; }
+.replay-sidebar { padding: 18px 14px; border-right: 1px solid var(--workbench-border-subtle); background: var(--workbench-surface); overflow-y: auto; }
 .replay-sidebar label { display: block; margin-bottom: 16px; }
 .replay-sidebar label > span { display: block; margin-bottom: 6px; color: #a6abb3; font-size: 0.75rem; }
-.replay-sidebar select { width: 100%; height: 34px; border: 1px solid #414349; border-radius: 4px; background: #151618; color: #eee; padding: 0 8px; }
+.replay-sidebar select { width: 100%; height: 34px; border: 1px solid var(--workbench-border); border-radius: 4px; background: var(--workbench-input); color: var(--workbench-text); padding: 0 8px; }
 .replay-main { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr); gap: 18px; padding: 18px; box-sizing: border-box; overflow: hidden; }
 .replay-media { align-self: start; min-width: 0; }
 .replay-score-overlay { margin-top: 14px; }
-.timeline { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid #34363a; padding-left: 18px; }
+.timeline { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--workbench-border-subtle); padding-left: 18px; }
 .timeline-header { min-height: 32px; display: flex; justify-content: space-between; align-items: center; }
 .timeline-header h3 { margin: 0; font-size: 0.95rem; letter-spacing: 0; }
-.timeline-header span { color: #858b94; font-size: 0.8rem; }
-.event-list { min-height: 0; overflow-y: auto; border-top: 1px solid #34363a; }
+.timeline-header span { color: var(--workbench-muted); font-size: 0.8rem; }
+.event-list { min-height: 0; overflow-y: auto; border-top: 1px solid var(--workbench-border-subtle); }
 .event-row { width: 100%; min-height: 62px; display: grid; grid-template-columns: 78px 78px minmax(120px, 1fr) minmax(80px, auto) 72px; align-items: center; gap: 8px; padding: 9px 8px; border: 0; border-bottom: 1px solid #303236; background: transparent; color: #e7e8ea; text-align: left; cursor: pointer; }
 .event-row:hover:not(:disabled), .event-row.active { background: #26333d; box-shadow: inset 3px 0 #4da3dc; }
 .event-row.unaligned { color: #777c84; cursor: default; }
@@ -314,7 +314,7 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 .event-delta { font-weight: 650; color: #d9dce0; font-size: 0.8rem; }
 .event-total { text-align: right; font-size: 0.78rem; }
 .sync-status { grid-column: 3 / -1; color: #a27878; font-size: 0.72rem; }
-.timeline-empty, .empty-replay { color: #858b94; display: flex; align-items: center; justify-content: center; min-height: 160px; }
+.timeline-empty, .empty-replay { color: var(--workbench-muted); display: flex; align-items: center; justify-content: center; min-height: 160px; }
 .empty-replay { grid-column: 1 / -1; flex-direction: column; gap: 10px; }
 @media (max-width: 900px) {
   .replay-main { grid-template-columns: 1fr; overflow-y: auto; }

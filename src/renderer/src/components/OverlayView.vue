@@ -80,58 +80,13 @@
       <div class="score-body">
 
         <div
-          v-if="config.displayMode === 'SPLIT'"
-          class="score-grid-row font-scale-target"
+          v-if="config.displayMode !== 'REALTIME'"
+          class="font-scale-target"
           :class="{ active: fontScaleTargetKey === refKey }"
           @mousedown="handleFontTargetMouseDown($event, refKey)"
           @wheel="handleFontWheel($event, refKey)"
         >
-          <div class="grid-cell right-align">
-            <span class="score-val plus">+{{ ref.plus }}</span>
-          </div>
-          <div class="grid-cell center-align">
-            <span class="score-divider">/</span>
-          </div>
-          <div class="grid-cell left-align">
-            <span class="score-val minus">-{{ ref.minus }}</span>
-            <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
-              <span class="score-divider">/</span>
-              <span class="score-val penalty-text">-{{ ref.penalty }}</span>
-            </template>
-          </div>
-        </div>
-
-        <div
-          v-else-if="config.displayMode === 'TOTAL'"
-          class="score-single-row font-scale-target"
-          :class="{ active: fontScaleTargetKey === refKey }"
-          @mousedown="handleFontTargetMouseDown($event, refKey)"
-          @wheel="handleFontWheel($event, refKey)"
-        >
-          <span class="score-val total">{{ ref.total }}</span>
-          <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
-             <span class="score-divider total-divider">/</span>
-             <span class="score-val penalty-text total-penalty">-{{ ref.penalty }}</span>
-          </template>
-        </div>
-
-        <div
-          v-else-if="config.displayMode === 'COMBINED'"
-          class="score-combined-col font-scale-target"
-          :class="{ active: fontScaleTargetKey === refKey }"
-          @mousedown="handleFontTargetMouseDown($event, refKey)"
-          @wheel="handleFontWheel($event, refKey)"
-        >
-          <div class="combined-total">{{ ref.total }}</div>
-          <div class="combined-detail">
-            <span class="mini-plus">+{{ ref.plus }}</span>
-            <span class="score-divider-small">/</span>
-            <span class="mini-minus">-{{ ref.minus }}</span>
-            <template v-if="ref.mode === 'DUAL' && ref.penalty > 0">
-               <span class="score-divider-small">/</span>
-               <span class="penalty-text">-{{ ref.penalty }}</span>
-            </template>
-          </div>
+          <RefereeScoreDisplay :referee="ref" :mode="config.displayMode" :scale="config.fontScale" />
         </div>
 
         <div
@@ -179,6 +134,7 @@
 import { ref, reactive, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import { useCompetitionStore } from '../stores/competitionStore'
 import { useMatchStore } from '../stores/matchStore'
+import RefereeScoreDisplay from './RefereeScoreDisplay.vue'
 import WaveformWidget from './WaveformWidget.vue'
 
 const store = useMatchStore()
@@ -733,8 +689,6 @@ const changePlayer = async (delta) => {
 .score-body { display: flex; align-items: center; justify-content: center; min-height: calc(40px * var(--score-font-scale)); width: 100%; flex: 1; overflow: hidden; }
 
 .score-grid-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%; }
-.score-single-row,
-.score-combined-col,
 .font-scale-target { width: 100%; }
 .font-scale-target { cursor: zoom-in; }
 .font-scale-target.active { cursor: ns-resize; }
@@ -748,9 +702,6 @@ const changePlayer = async (delta) => {
 
 .score-val { font-size: calc(2rem * var(--score-font-scale)); font-weight: bold; line-height: 1; &.plus { color: #fff; } &.minus { color: #ff6b6b; } &.total { font-size: calc(2.5rem * var(--score-font-scale)); color: #2ecc71; } }
 .score-divider { font-size: calc(1.5rem * var(--score-font-scale)); color: #666; margin: 0 5px; font-weight: lighter; }
-.score-combined-col { display: flex; flex-direction: column; align-items: center; }
-.combined-total { font-size: calc(2rem * var(--score-font-scale)); font-weight: bold; color: #2ecc71; line-height: 1; margin-bottom: 2px; }
-.combined-detail { font-size: calc(0.9rem * var(--score-font-scale)); color: #bbb; .mini-plus { color: #ddd; } .mini-minus { color: #ff6b6b; } }
 .pop-enter-active, .pop-leave-active { transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.5); }
 
@@ -795,16 +746,4 @@ const changePlayer = async (delta) => {
   margin-left: calc(5px * var(--score-font-scale));
 }
 
-/* Total 模式下的 Divider */
-.total-divider {
-  vertical-align: middle;
-}
-
-/* Combined 模式下的 Divider */
-.score-divider-small {
-  margin: 0 4px;
-  color: #666;
-  font-size: calc(0.9rem * var(--score-font-scale));
-  font-weight: lighter;
-}
 </style>

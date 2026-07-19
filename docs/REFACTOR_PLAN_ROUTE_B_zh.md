@@ -39,11 +39,12 @@ Main 组合根、赛事领域、MatchSession 协作者和 Platform Worker 手动
 3. 单一 `refereeStore` 已删除，状态拆到 Competition、Match、Device、Settings 和 Replay/Export Store；复杂页面只组合所需分域。
 4. 历史赛事已从模态框改为工作台/赛事页面表格，设置已成为独立页面；更新完成、删除确认、导入和导出反馈不再使用原生 `alert`/`confirm`。
 5. Overlay 继续直接渲染独立透明根节点，不进入 Router、侧栏、主题背景或主窗口壳层。
+6. 现场播放器旁、复盘播放器旁和 OBS Overlay 的 TOTAL/SPLIT/COMBINED 模式共用 `RefereeScoreDisplay` 与纯 `scoreDisplay` 模型；罚分、缩放边界和颜色语义只有一处实现。
 
 剩余：
 
 1. 将仍使用中性深色局部样式的赛事向导、现场计分、报表和复盘逐步切换为共享语义 Token，减少组件内硬编码颜色。
-2. 统一 OBS Overlay、现场播放器旁和复盘播放器旁的紧凑计分展示模型，在保留 Overlay 布局编辑能力的同时复用同一只读计分组件。
+2. 继续收敛 OBS Overlay 独有的 REALTIME 连击模式、裁判标题和连接状态容器；拖拽/缩放布局编辑仍只属于 Overlay。
 3. 补充可自动执行的 Renderer 交互测试，并完成 1366x768、1920x1080、2560x1440、双显示器缩放与真实窗口控制验收。
 
 详细规范见 [桌面 UI 与交互目标](./UI_INTERACTION_SPEC_zh.md)。

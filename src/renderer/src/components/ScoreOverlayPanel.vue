@@ -31,33 +31,7 @@
           </div>
         </div>
 
-        <div v-if="displayMode === 'TOTAL'" class="total-layout">
-          <span class="total-value">{{ referee.total ?? 0 }}</span>
-          <span v-if="showPenalty(referee)" class="penalty">-{{ referee.penalty }}</span>
-        </div>
-
-        <div v-else-if="displayMode === 'SPLIT'" class="split-layout">
-          <span class="plus">+{{ referee.plus ?? 0 }}</span>
-          <span class="divider">/</span>
-          <span class="minus">-{{ referee.minus ?? 0 }}</span>
-          <template v-if="showPenalty(referee)">
-            <span class="divider">/</span>
-            <span class="penalty">-{{ referee.penalty }}</span>
-          </template>
-        </div>
-
-        <div v-else class="combined-layout">
-          <span class="combined-total">{{ referee.total ?? 0 }}</span>
-          <div class="combined-detail">
-            <span>+{{ referee.plus ?? 0 }}</span>
-            <span class="divider">/</span>
-            <span class="minus">-{{ referee.minus ?? 0 }}</span>
-            <template v-if="showPenalty(referee)">
-              <span class="divider">/</span>
-              <span class="penalty">-{{ referee.penalty }}</span>
-            </template>
-          </div>
-        </div>
+        <RefereeScoreDisplay :referee="referee" :mode="displayMode" />
       </article>
     </div>
     <div v-else class="score-empty">{{ $t('media_score_empty') }}</div>
@@ -67,6 +41,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import RefereeScoreDisplay from './RefereeScoreDisplay.vue'
 
 const props = defineProps({
   referees: { type: Object, default: () => ({}) },
@@ -80,8 +55,6 @@ const modeOptions = computed(() => [
   { value: 'SPLIT', label: t('ov_opt_split') },
   { value: 'COMBINED', label: t('ov_opt_combined') }
 ])
-
-const showPenalty = (referee) => referee.mode === 'DUAL' && Number(referee.penalty || 0) > 0
 
 onMounted(() => {
   try {
@@ -105,33 +78,23 @@ watch(displayMode, (value) => {
 </script>
 
 <style scoped>
-.score-overlay-panel { min-width: 0; color: #f4f4f5; }
+.score-overlay-panel { min-width: 0; color: var(--workbench-text); }
 .panel-header { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .panel-identity { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.panel-label { color: #858b94; font-size: 0.72rem; }
+.panel-label { color: var(--workbench-muted); font-size: 0.72rem; }
 .panel-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
-.mode-switch { flex: 0 0 auto; display: inline-flex; border: 1px solid #414349; border-radius: 5px; overflow: hidden; }
-.mode-switch button { min-height: 28px; padding: 0 8px; border: 0; border-right: 1px solid #414349; background: #232428; color: #a9adb4; font-size: 0.7rem; cursor: pointer; }
+.mode-switch { flex: 0 0 auto; display: inline-flex; border: 1px solid var(--workbench-border); border-radius: 5px; overflow: hidden; }
+.mode-switch button { min-height: 28px; padding: 0 8px; border: 0; border-right: 1px solid var(--workbench-border); background: var(--workbench-surface-raised); color: var(--workbench-muted); font-size: 0.7rem; cursor: pointer; }
 .mode-switch button:last-child { border-right: 0; }
-.mode-switch button.active { background: #276f9f; color: #fff; }
+.mode-switch button.active { background: var(--workbench-accent); color: #fff; }
 .overlay-score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.overlay-score-card { min-width: 0; min-height: 94px; box-sizing: border-box; display: flex; flex-direction: column; padding: 10px 12px; border-left: 4px solid #3498db; border-radius: 4px; background: rgba(20, 20, 20, 0.92); box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.35); }
-.referee-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 5px; border-bottom: 1px solid #404247; color: #b8bbc1; font-size: 0.76rem; }
+.overlay-score-card { min-width: 0; min-height: 94px; box-sizing: border-box; display: flex; flex-direction: column; padding: 10px 12px; border-left: 4px solid var(--workbench-accent); border-radius: 4px; background: color-mix(in srgb, var(--workbench-surface) 92%, transparent); box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.35); }
+.referee-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--workbench-border); color: var(--workbench-text-secondary); font-size: 0.76rem; }
 .connection-status { display: inline-flex; gap: 4px; }
 .connection-status span { width: 6px; height: 6px; border-radius: 50%; background: #666; }
 .connection-status span.connected { background: #2ecc71; }
 .connection-status span.connecting { background: #e0ad42; }
-.total-layout, .split-layout, .combined-layout { flex: 1; display: flex; align-items: center; justify-content: center; }
-.total-layout { gap: 10px; }
-.total-value { color: #2ecc71; font-size: 2.4rem; font-weight: 750; line-height: 1; }
-.split-layout { gap: 7px; font-size: 1.8rem; font-weight: 700; }
-.plus { color: #f4f4f5; }
-.minus, .penalty { color: #ff7474; }
-.divider { color: #666b72; font-weight: 400; }
-.combined-layout { flex-direction: column; padding-top: 4px; }
-.combined-total { color: #2ecc71; font-size: 2rem; font-weight: 750; line-height: 1; }
-.combined-detail { display: flex; align-items: center; gap: 5px; margin-top: 4px; color: #d8dade; font-size: 0.8rem; }
-.score-empty { min-height: 110px; display: flex; align-items: center; justify-content: center; border: 1px dashed #3a3c41; border-radius: 5px; color: #777c84; font-size: 0.8rem; }
+.score-empty { min-height: 110px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--workbench-border); border-radius: 5px; color: var(--workbench-muted); font-size: 0.8rem; }
 @media (max-width: 560px) {
   .panel-header { align-items: flex-start; flex-direction: column; }
   .overlay-score-grid { grid-template-columns: 1fr; }
