@@ -9,6 +9,8 @@
 - CSV、SRT、XLSX 和 ZIP 都是导出，不参与实时状态恢复。
 - 不兼容旧项目目录、旧 CSV 或旧 SQLite；重构允许清空本地数据并从新 Schema 开始。
 - 平台差异只存在于适配层；领域对象不读取操作系统名称。
+- `FREE` 和 `TOURNAMENT` 共享 SQLite 实体与计分事件模型，但必须拥有不同的配置入口；自由模式不暴露赛事配置概念。
+- 自由模式固定使用隐式 `Main` Stage、隐式 `Free Mode` 组和 `attempt_number = 1`；尝试次数只在赛事模式的配置界面出现。
 
 ## 2. 目标运行拓扑
 
@@ -128,6 +130,34 @@ services/community/
 - 原始 `ScoreEvent` 追加后不可修改；纠错通过作废会话或追加校正事件完成。
 - Repository 返回领域对象或明确 DTO，不向 Renderer 暴露 SQL 行结构。
 
+### 5.1 模式化存储映射
+
+模式差异只影响创建和运行入口，不新增模式专用表：
+
+```text
+FREE:
+competition
+└─ Main(stage, attempts=1)
+   └─ Free Mode(group)
+      └─ Player 1 / 当前自由上下文(contestant)
+         └─ MatchSession(attempt_number=1)
+
+TOURNAMENT:
+competition
+└─ Stage(s, attempts=1..20)
+   └─ Group(s)
+      └─ Contestant(s)
+         └─ MatchSession(attempt_number=1..attempts)
+```
+
+自由模式的 Renderer 输入只需要项目名称和裁判数量；Main/Application 层负责生成统一 Stage/Group/Contestant/MatchSession 结构。赛事模式提交完整 graph 配置。两种模式最终都由相同的 `score_events`、复盘查询和导出查询读取。
+
+`attempt_number` 是领域和持久化字段，不是自由模式的用户概念。自由模式固定传 `1`，赛事模式在范围 `1..20` 内校验并允许选择。旧仓库的 `config.json`、组目录和裁判 CSV 仅作为对照，不进入新运行时恢复路径。
+
+### 5.2 进程边界数据
+
+Platform Worker 的 JSONL 响应、Electron Main 的 IPC 返回值和 Renderer 状态只能传递 JSON 可序列化 DTO。扫描结果不得包含 Bleak 设备实例、广告对象、异常实例、函数、句柄或循环引用。错误统一转换为稳定的 `code/message/retryable` 结构；原始异常只写入 Main/Worker 日志。
+
 ## 6. Legacy 删除边界
 
 `server.py` 不再拆分成新的 Python Web 服务。SQLite 导出补齐后，直接删除：
@@ -158,5 +188,8 @@ Platform Worker -> platform adapters
 - 应用不读取或迁移 legacy `config.json`、计分 CSV、`match_data` 或旧 SQLite。
 - 活动设备只由一个 Platform Worker 实例持有。
 - SQLite 可独立完成创建、计分、崩溃恢复、复盘和导出。
+- 自由模式从项目配置直接进入设备绑定和计分；赛事模式保留 Stage/组别/选手/尝试次数配置。
+- 自由模式前端不显示尝试次数，数据库中的自由会话始终使用 `attempt_number = 1`。
+- 设备扫描失败时 Renderer 只显示稳定本地化错误和重试动作，不显示 `DataCloneError` 等跨进程原始异常文本。
 - Django/PostgreSQL 下线时，本地全流程保持可用。
 - `index.js`、Store 或任何新组合根不重新聚合所有业务实现。

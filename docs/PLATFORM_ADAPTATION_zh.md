@@ -111,6 +111,8 @@ workers/local-platform-worker/ft_worker/platform/
 - 使用 Bleak WinRT backend，不在 Electron Renderer 中使用 Web Bluetooth。
 - 区分“蓝牙关闭”“权限拒绝”“适配器不存在”“目标设备未发现”和“连接超时”。
 - 扫描结果继续支持广播名称、Service UUID、RSSI、设备备注和传输类型。
+- 当前 `clicker_main.c` 固件的 GATT 契约为：Service `2891ae8d-3d45-4fde-814a-5169d0185001`，Counter Characteristic `2891ae8d-3d45-4fde-814a-5169d0185002`，Activation Characteristic `2891ae8d-3d45-4fde-814a-5169d0185003`。
+- Counter 通知包含当前总分、事件类型、累计正计数、累计负计数和设备时间戳；桌面层必须先校验长度、整数范围和设备身份，再生成领域事件。
 - Worker 重启后重新建立 WinRT 对象，不复用失效的系统句柄。
 - 保留现有 Windows BLE 心跳策略，并以平台配置注入设备节点。
 - Windows 睡眠和唤醒后执行重新扫描与连接恢复测试。
@@ -239,6 +241,8 @@ workers/local-platform-worker/ft_worker/platform/
 - 通用代码不得拼接 `%APPDATA%`、`~/Library`、COM Port 或 `/dev/cu.*`。
 - 平台错误先转换为稳定错误码，再交给 Renderer 本地化。
 - UI 可以根据 capability 显示功能状态，但不根据系统名称猜测能力。
+- Worker JSONL、Main IPC 和 Renderer 状态之间只允许传递 JSON 可序列化的普通 DTO。扫描结果不得包含 Bleak 设备对象、广告对象、异常实例、函数、句柄或循环引用；原始异常只写入日志。
+- “An object could not be cloned.” 属于待定位的进程边界故障，不作为 BLE 固件错误结论。排查顺序为 Worker JSONL 编码 -> Main Worker client -> `ipcMain.handle` 返回值 -> Renderer Store 捕获；每一层都应将异常归一为 `code/message/retryable`。
 - Worker 握手应返回 capabilities：
 
 ```json
@@ -266,6 +270,11 @@ workers/local-platform-worker/ft_worker/platform/
 | `BLE_ADAPTER_MISSING` | 未检测到蓝牙适配器 |
 | `BLE_POWERED_OFF` | 蓝牙已关闭 |
 | `BLE_PERMISSION_DENIED` | 蓝牙权限被拒绝 |
+| `BLE_DEVICE_NOT_FOUND` | 绑定的 BLE 设备未发现 |
+| `BLE_CONNECTION_TIMEOUT` | BLE 连接超过平台适配器超时 |
+| `BLE_SCAN_TIMEOUT` | BLE 扫描超过平台适配器超时 |
+| `BLE_SCAN_SERIALIZATION_FAILED` | 扫描结果无法通过 Worker/IPC 序列化 |
+| `WORKER_UNAVAILABLE` | Platform Worker 未运行或已退出 |
 | `USB_DEVICE_NOT_FOUND` | 绑定的 USB 设备不可用 |
 | `USB_PORT_BUSY` | 串口被其他程序占用 |
 | `WINDOW_PERMISSION_DENIED` | 无法读取目标窗口 |
@@ -333,4 +342,5 @@ build-macos-arm64 / build-macos-x64
 - 安装包、Worker、更新包满足对应系统签名要求。
 - 用户数据始终写入对应系统的用户数据目录。
 - 平台权限被拒绝时，应用仍可进入工作台和复盘，不发生启动崩溃。
+- 扫描失败时，设备绑定页提供稳定错误提示、重新扫描和（适用时）重启 Worker；不得把 Python/Electron 原始异常对象发送给 Renderer。
 - 平台差异新增或变更时只更新本文件和适配层，不修改无关产品流程文档。

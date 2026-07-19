@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-第一期建立独立的用户数据服务，采用 Django、Django REST Framework 和 PostgreSQL。它只承载账号、资料和会话，后续再增加社区内容；本地赛事数据不上传到该服务，也不依赖它才能运行。
+第一期建立独立的用户数据服务，采用 Django、Django REST Framework 和 PostgreSQL。它只承载账号、资料和会话，后续再增加社区内容；本地赛事数据不上传到该服务，也不依赖它才能运行。本地自由/赛事模式、计分、复盘和导出均以 Electron Main 的 SQLite 为准，模式与存储约束见 [当前架构](./ARCHITECTURE_CURRENT_zh.md) 和 [目标架构](./ARCHITECTURE_TARGET_zh.md)。
 
 当前 Docker PostgreSQL 基线：容器 `pgvector-db`，镜像 `pgvector/pgvector:pg16`，宿主 `5433` 映射容器 `5432`。应用通过环境变量连接，不提交真实账号或密码。
 
