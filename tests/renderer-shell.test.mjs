@@ -58,3 +58,27 @@ test('splits Renderer state by domain and removes native page dialogs', () => {
     assert.equal(renderer.includes(nativeDialog), false, nativeDialog)
   }
 })
+
+test('routes operational workspace structure through shared semantic tokens', () => {
+  const tokens = source('src/renderer/src/assets/main.css')
+  for (const token of [
+    '--workbench-bg',
+    '--workbench-surface',
+    '--workbench-border',
+    '--workbench-text',
+    '--workbench-accent'
+  ]) {
+    assert.equal(tokens.includes(token), true, token)
+  }
+
+  for (const page of [
+    'src/renderer/src/components/SetupWizard.vue',
+    'src/renderer/src/components/ScoreBoard.vue',
+    'src/renderer/src/components/ReplayView.vue',
+    'src/renderer/src/components/ReportView.vue'
+  ]) {
+    const pageSource = source(page)
+    assert.equal(pageSource.includes('var(--workbench-'), true, page)
+    assert.equal(pageSource.includes('background: #1e1e1e'), false, page)
+  }
+})

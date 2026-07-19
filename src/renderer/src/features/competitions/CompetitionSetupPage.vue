@@ -38,6 +38,6 @@ onMounted(async () => {
 <style scoped>
 .competition-setup-page {
   min-height: 100%;
-  background: #1e1e1e;
+  background: var(--workbench-bg);
 }
 </style>

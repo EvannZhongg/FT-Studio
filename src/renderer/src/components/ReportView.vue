@@ -460,13 +460,13 @@ const exportCSV = async () => {
 </script>
 
 <style scoped lang="scss">
-.report-view { display: flex; height: 100%; color: white; background: #1e1e1e; }
+.report-view { display: flex; height: 100%; color: var(--workbench-text); background: var(--workbench-bg); }
 .report-error { margin: 10px 20px 0; padding: 9px 11px; border-left: 3px solid #d36b6b; background: #392425; color: #ffc3c3; font-size: 0.82rem; }
 
 .sidebar {
   width: 250px;
-  background: #252526;
-  border-right: 1px solid #333;
+  background: var(--workbench-surface);
+  border-right: 1px solid var(--workbench-border-subtle);
   display: flex;
   flex-direction: column;
 
@@ -474,7 +474,7 @@ const exportCSV = async () => {
     padding: 20px;
     font-weight: bold;
     font-size: 1.2rem;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--workbench-border-subtle);
   }
 
   .group-list {
@@ -487,19 +487,19 @@ const exportCSV = async () => {
     cursor: pointer;
     border-bottom: 1px solid #2d2d2d;
 
-    &:hover { background: #2d2d2d; }
-    &.active { background: #3498db; color: white; }
+    &:hover { background: var(--workbench-surface-hover); }
+    &.active { background: var(--workbench-accent); color: white; }
   }
 
   .btn-back {
     margin: 20px;
     padding: 10px;
-    background: #444;
+    background: var(--workbench-surface-raised);
     border: none;
-    color: #ccc;
+    color: var(--workbench-text-secondary);
     cursor: pointer;
     border-radius: 4px;
-    &:hover { background: #555; }
+    &:hover { background: var(--workbench-surface-hover); }
   }
 }
 
@@ -517,10 +517,10 @@ const exportCSV = async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
-  background: #252526;
+  background: var(--workbench-surface);
   padding: 12px 20px;
   border-radius: 6px;
-  border: 1px solid #333;
+  border: 1px solid var(--workbench-border-subtle);
   min-height: 50px;
 
   .bar-left {
@@ -569,21 +569,21 @@ const exportCSV = async () => {
 
     .view-switcher {
       display: flex;
-      background: #333;
+      background: var(--workbench-surface-raised);
       border-radius: 4px;
       padding: 3px;
 
       button {
         background: transparent;
         border: none;
-        color: #aaa;
+        color: var(--workbench-muted-strong);
         padding: 6px 18px;
         cursor: pointer;
         border-radius: 4px;
         font-weight: bold;
 
         &.active {
-          background: #3498db;
+          background: var(--workbench-accent);
           color: white;
         }
       }
@@ -591,14 +591,14 @@ const exportCSV = async () => {
   }
 }
 
-.table-container { flex: 1; overflow: auto; background: #252526; border-radius: 8px; padding: 10px; box-shadow: inset 0 0 20px rgba(0,0,0,0.2); }
+.table-container { flex: 1; overflow: auto; background: var(--workbench-surface); border-radius: 8px; padding: 10px; box-shadow: inset 0 0 20px rgba(0,0,0,0.2); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 600px; }
-th, td { text-align: center; padding: 12px 10px; border-bottom: 1px solid #333; }
-th { background: #333; position: sticky; top: 0; z-index: 10; color: #eee; }
+th, td { text-align: center; padding: 12px 10px; border-bottom: 1px solid var(--workbench-border-subtle); }
+th { background: var(--workbench-surface-raised); position: sticky; top: 0; z-index: 10; color: var(--workbench-text); }
 .th-penalty { color: #e74c3c; background: rgba(231, 76, 60, 0.1); border-bottom-color: #c0392b; }
 .striped-table tbody tr:nth-child(odd) { background-color: rgba(52, 152, 219, 0.08); &:hover { background-color: rgba(52, 152, 219, 0.15); } }
 .striped-table tbody tr:nth-child(even) { background-color: rgba(231, 76, 60, 0.08); &:hover { background-color: rgba(231, 76, 60, 0.15); } }
-.fixed-col { text-align: left; font-weight: bold; color: #ddd; border-right: 1px solid #333; background: inherit; }
+.fixed-col { text-align: left; font-weight: bold; color: var(--workbench-text-secondary); border-right: 1px solid var(--workbench-border-subtle); background: inherit; }
 .highlight { color: #2ecc71; font-weight: bold; font-size: 1.1rem; }
 .penalty-col { font-weight: bold; color: #e74c3c; background: rgba(231, 76, 60, 0.05); }
 .raw-penalty-tag { color: #e74c3c; font-weight: bold; margin-left: 5px; font-size: 0.8rem; }
@@ -606,7 +606,7 @@ th { background: #333; position: sticky; top: 0; z-index: 10; color: #eee; }
 .score-cell { display: flex; flex-direction: column; align-items: center; .main-score { font-size: 1.1rem; font-weight: bold; color: white; } .sub-score { font-size: 0.8rem; color: #aaa; margin-top: 2px; } .plus { color: #aaa; } .minus { color: #e74c3c; } }
 
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; }
-.modal-content { background: #2b2b2b; padding: 25px; border-radius: 8px; color: white; display: flex; flex-direction: column; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+.modal-content { background: var(--workbench-surface-raised); padding: 25px; border-radius: 8px; color: var(--workbench-text); display: flex; flex-direction: column; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
 
 /* 高级设置模态框样式 */
 .advanced-modal {
