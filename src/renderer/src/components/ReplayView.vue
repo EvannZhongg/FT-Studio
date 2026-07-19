@@ -12,70 +12,108 @@
     </header>
 
     <div class="replay-layout">
-      <aside class="replay-sidebar">
-        <label>
-          <span>{{ $t('replay_project') }}</span>
-          <select v-model="selectedProjectDir">
-            <option value="" disabled>{{ $t('replay_select_project') }}</option>
-            <option v-for="project in projects" :key="project.id" :value="project.id">
-              {{ project.name }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>{{ $t('replay_group') }}</span>
-          <select v-model="selectedGroup" :disabled="!selectedProjectDir">
-            <option v-for="group in availableGroups" :key="group.name" :value="group.name">
-              {{ group.name }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>{{ $t('replay_contestant') }}</span>
-          <select v-model="selectedContestant" :disabled="!selectedGroup">
-            <option v-for="contestant in availableContestants" :key="contestant" :value="contestant">
-              {{ contestant }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>{{ $t('replay_referee') }}</span>
-          <select v-model="selectedReferee" :disabled="events.length === 0">
-            <option value="all">{{ $t('replay_all_referees') }}</option>
-            <option v-for="referee in referees" :key="referee.index" :value="String(referee.index)">
-              {{ referee.name }}
-            </option>
-          </select>
-        </label>
-      </aside>
-
       <main class="replay-main">
-        <div v-if="!selectedProjectDir" class="empty-replay">
-          <FolderOpen :size="32" />
-          {{ $t('replay_choose_project') }}
-        </div>
-        <template v-else>
-          <section class="replay-media">
-            <YouTubePlayer
-              ref="playerRef"
-              :video-id="currentVideoId"
-              :empty-text="$t('media_empty')"
-              :open-text="$t('media_open_browser')"
-              @playback="handlePlayback"
-            />
-            <ScoreOverlayPanel
-              v-if="currentVideoId"
-              class="replay-score-overlay"
-              :referees="visibleReplayScores"
-              :contestant="selectedContestant"
-              :display-mode="replayDisplayMode"
-              :show-header="false"
-              draggable
-              position-key="replay-score-overlay-position"
-            />
-          </section>
+        <section class="replay-media">
+          <YouTubePlayer
+            v-if="selectedProjectDir"
+            ref="playerRef"
+            :video-id="currentVideoId"
+            :empty-text="$t('media_empty')"
+            :open-text="$t('media_open_browser')"
+            @playback="handlePlayback"
+          />
+          <div v-else class="empty-replay">
+            <FolderOpen :size="34" />
+            <strong>{{ $t('replay_choose_project') }}</strong>
+            <span>{{ $t('replay_choose_project_hint') }}</span>
+            <button type="button" @click="sidebarOpen = true">
+              {{ $t('replay_choose_project_action') }}
+            </button>
+          </div>
+          <ScoreOverlayPanel
+            v-if="currentVideoId"
+            class="replay-score-overlay"
+            :referees="visibleReplayScores"
+            :contestant="selectedContestant"
+            :display-mode="replayDisplayMode"
+            :show-header="false"
+            draggable
+            position-key="replay-score-overlay-position"
+          />
+        </section>
+      </main>
 
-          <section class="timeline">
+      <aside
+        class="replay-sidebar"
+        :class="{ open: sidebarOpen }"
+        @mouseenter="sidebarOpen = true"
+        @mouseleave="sidebarOpen = false"
+        @focusin="sidebarOpen = true"
+      >
+        <div
+          class="replay-sidebar-rail"
+          role="button"
+          tabindex="0"
+          :aria-label="$t('replay_open_panel')"
+          :aria-expanded="sidebarOpen"
+          aria-controls="replay-controls"
+          @keydown.enter="sidebarOpen = true"
+          @keydown.space.prevent="sidebarOpen = true"
+        ></div>
+
+        <div
+          id="replay-controls"
+          class="replay-sidebar-content"
+          :inert="!sidebarOpen"
+          :aria-hidden="!sidebarOpen"
+        >
+          <div class="replay-sidebar-title">{{ $t('replay_panel_title') }}</div>
+          <div class="replay-filters">
+            <label>
+            <span>{{ $t('replay_project') }}</span>
+            <select v-model="selectedProjectDir" @change="handleProjectSelected">
+              <option value="" disabled>{{ $t('replay_select_project') }}</option>
+              <option v-for="project in projects" :key="project.id" :value="project.id">
+                {{ project.name }}
+              </option>
+            </select>
+            </label>
+            <label>
+            <span>{{ $t('replay_group') }}</span>
+            <select v-model="selectedGroup" :disabled="!selectedProjectDir">
+              <option v-for="group in availableGroups" :key="group.name" :value="group.name">
+                {{ group.name }}
+              </option>
+            </select>
+            </label>
+            <label>
+            <span>{{ $t('replay_contestant') }}</span>
+            <select v-model="selectedContestant" :disabled="!selectedGroup">
+              <option
+                v-for="contestant in availableContestants"
+                :key="contestant"
+                :value="contestant"
+              >
+                {{ contestant }}
+              </option>
+            </select>
+            </label>
+            <label>
+            <span>{{ $t('replay_referee') }}</span>
+            <select v-model="selectedReferee" :disabled="events.length === 0">
+              <option value="all">{{ $t('replay_all_referees') }}</option>
+              <option
+                v-for="referee in referees"
+                :key="referee.index"
+                :value="String(referee.index)"
+              >
+                {{ referee.name }}
+              </option>
+            </select>
+            </label>
+          </div>
+
+          <section v-if="selectedProjectDir" class="timeline">
             <div class="timeline-header">
               <h3>{{ $t('replay_events') }}</h3>
               <span>{{ filteredEvents.length }}</span>
@@ -106,8 +144,8 @@
               </button>
             </div>
           </section>
-        </template>
-      </main>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
@@ -142,7 +180,9 @@ const activeEventId = ref('')
 const loading = ref(false)
 const playerRef = ref(null)
 const replayDisplayMode = ref('COMBINED')
+const sidebarOpen = ref(true)
 let requestSequence = 0
+let collapseDrawerOnPlayable = false
 
 const selectedProject = computed(() =>
   projects.value.find((project) => project.id === selectedProjectDir.value)
@@ -181,9 +221,14 @@ onMounted(async () => {
   projects.value = await competitionStore.fetchHistoryProjects()
   const requestedCompetition = String(route.query.competition || '')
   if (projects.value.some((project) => project.id === requestedCompetition)) {
+    collapseDrawerOnPlayable = true
     selectedProjectDir.value = requestedCompetition
   }
 })
+
+const handleProjectSelected = () => {
+  collapseDrawerOnPlayable = true
+}
 
 watch(selectedProjectDir, () => {
   const requestedGroup =
@@ -241,12 +286,16 @@ watch(
     if (sequence !== requestSequence) return
     binding.value = data?.binding || null
     events.value = data?.events || []
-    currentVideoId.value = binding.value?.video_id || events.value.find((event) => event.media_id)?.media_id || ''
+    currentVideoId.value =
+      binding.value?.video_id || events.value.find((event) => event.media_id)?.media_id || ''
+    if (collapseDrawerOnPlayable && currentVideoId.value) sidebarOpen.value = false
+    collapseDrawerOnPlayable = false
     loading.value = false
   }
 )
 
-const isAligned = (event) => event.media_sync_status === 'aligned' && event.media_time_ms != null && event.media_id
+const isAligned = (event) =>
+  event.media_sync_status === 'aligned' && event.media_time_ms != null && event.media_id
 
 const jumpToEvent = async (event) => {
   if (!isAligned(event)) return
@@ -255,6 +304,7 @@ const jumpToEvent = async (event) => {
   activeEventId.value = event.event_id
   await nextTick()
   playerRef.value?.openAt(event.media_id, event.media_time_ms / 1000, true)
+  sidebarOpen.value = false
 }
 
 const handlePlayback = (playback) => {
@@ -295,41 +345,52 @@ const syncStatusLabel = (status) => t(`replay_sync_${status || 'not_ready'}`)
 
 <style scoped>
 .replay-view { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--workbench-bg); color: var(--workbench-text); }
-.replay-header { position: absolute; top: 14px; left: 236px; right: calc(min(380px, 32vw) + 16px); z-index: 10; min-height: 36px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; pointer-events: none; }
+.replay-header { position: absolute; top: 14px; left: 56px; right: 16px; z-index: 10; min-height: 36px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; pointer-events: none; }
 .replay-header > button, .replay-header > .score-display-mode-switch { pointer-events: auto; }
 .replay-header h2 { margin: 0; color: rgba(255, 255, 255, 0.62); font-size: 1.05rem; letter-spacing: 0; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7); }
 .replay-subtitle { color: rgba(255, 255, 255, 0.5); font-size: 0.76rem; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7); }
 .back-button { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: rgba(255, 255, 255, 0.56); cursor: pointer; transition: color 0.16s ease, background-color 0.16s ease; }
 .back-button:hover, .back-button:focus-visible { outline: none; background: rgba(255, 255, 255, 0.12); color: #fff; }
-.replay-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-.replay-sidebar { padding: 18px 14px; border-right: 1px solid var(--workbench-border-subtle); background: var(--workbench-surface); overflow-y: auto; }
-.replay-sidebar label { display: block; margin-bottom: 16px; }
+.replay-layout { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.replay-main { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; }
+.replay-media { position: absolute; inset: 0; min-width: 0; height: 100%; }
+.replay-media :deep(.player-frame) { border-radius: 0; }
+.replay-score-overlay { z-index: 6; }
+.replay-sidebar { --drawer-width: min(300px, calc(100vw - 72px)); position: absolute; inset: 0 auto 0 0; width: var(--drawer-width); z-index: 11; transform: translateX(calc(-100% + 7px)); transition: transform 0.2s ease; }
+.replay-sidebar.open { transform: translateX(0); }
+.replay-sidebar-content { height: 100%; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; padding: 16px 14px; border-right: 1px solid var(--workbench-border-subtle); background: color-mix(in srgb, var(--workbench-surface) 96%, transparent); box-shadow: 10px 0 28px rgba(0, 0, 0, 0.24); backdrop-filter: blur(12px); overflow: hidden; }
+.replay-sidebar:not(.open) .replay-sidebar-content > * { opacity: 0; }
+.replay-sidebar-title { flex: 0 0 auto; min-height: 30px; color: var(--workbench-text); font-size: 0.86rem; font-weight: 650; }
+.replay-sidebar-rail { position: absolute; inset: 0 0 0 auto; width: 7px; z-index: 1; background: rgba(255, 255, 255, 0.1); cursor: ew-resize; transition: background-color 0.16s ease, box-shadow 0.16s ease; }
+.replay-sidebar-rail::after { content: ''; position: absolute; top: 0; right: 2px; bottom: 0; width: 1px; background: rgba(255, 255, 255, 0.28); }
+.replay-sidebar-rail:hover, .replay-sidebar-rail:focus-visible { outline: none; background: color-mix(in srgb, var(--workbench-accent) 18%, transparent); box-shadow: 2px 0 10px color-mix(in srgb, var(--workbench-accent) 28%, transparent); }
+.replay-filters { flex: 0 0 auto; }
+.replay-sidebar label { display: block; margin-bottom: 14px; }
 .replay-sidebar label > span { display: block; margin-bottom: 6px; color: var(--workbench-muted-strong); font-size: 0.75rem; }
 .replay-sidebar select { width: 100%; height: 34px; border: 1px solid var(--workbench-border); border-radius: 4px; background: var(--workbench-input); color: var(--workbench-text); padding: 0 8px; }
-.replay-main { position: relative; min-width: 0; min-height: 0; display: block; box-sizing: border-box; overflow: hidden; }
-.replay-media { position: absolute; inset: 0; min-width: 0; height: 100%; }
-.replay-score-overlay { z-index: 6; }
-.timeline { position: absolute; top: 0; right: 0; bottom: 0; width: min(380px, 32vw); min-width: 320px; display: flex; flex-direction: column; border-left: 1px solid var(--workbench-border-subtle); padding: 18px; box-sizing: border-box; background: color-mix(in srgb, var(--workbench-surface) 92%, transparent); backdrop-filter: blur(10px); z-index: 5; }
-.timeline-header { min-height: 32px; display: flex; justify-content: space-between; align-items: center; }
-.timeline-header h3 { margin: 0; font-size: 0.95rem; letter-spacing: 0; }
+.timeline { min-height: 0; display: flex; flex: 1 1 auto; flex-direction: column; border-top: 1px solid var(--workbench-border-subtle); padding-top: 12px; }
+.timeline-header { min-height: 32px; display: flex; flex: 0 0 auto; justify-content: space-between; align-items: center; }
+.timeline-header h3 { margin: 0; font-size: 0.9rem; letter-spacing: 0; }
 .timeline-header span { color: var(--workbench-muted); font-size: 0.8rem; }
 .event-list { min-height: 0; overflow-y: auto; border-top: 1px solid var(--workbench-border-subtle); }
-.event-row { width: 100%; min-height: 62px; display: grid; grid-template-columns: 78px 78px minmax(120px, 1fr) minmax(80px, auto) 72px; align-items: center; gap: 8px; padding: 9px 8px; border: 0; border-bottom: 1px solid var(--workbench-border-subtle); background: transparent; color: var(--workbench-text); text-align: left; cursor: pointer; }
+.event-row { width: 100%; min-height: 82px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px 8px; padding: 9px 8px; border: 0; border-bottom: 1px solid var(--workbench-border-subtle); background: transparent; color: var(--workbench-text); text-align: left; cursor: pointer; }
 .event-row:hover:not(:disabled), .event-row.active { background: var(--workbench-accent-soft); box-shadow: inset 3px 0 var(--workbench-accent); }
 .event-row.unaligned { color: var(--workbench-muted); cursor: default; }
 .video-time { color: var(--workbench-accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.78rem; }
 .event-system-time { color: var(--workbench-muted); font-size: 0.75rem; }
-.event-ref { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
+.event-ref { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
 .event-delta { font-weight: 650; color: var(--workbench-text-secondary); font-size: 0.8rem; }
 .event-total { text-align: right; font-size: 0.78rem; }
-.sync-status { grid-column: 3 / -1; color: var(--workbench-danger); font-size: 0.72rem; }
+.sync-status { grid-column: 1 / -1; color: var(--workbench-danger); font-size: 0.72rem; }
 .timeline-empty, .empty-replay { color: var(--workbench-muted); display: flex; align-items: center; justify-content: center; min-height: 160px; }
-.empty-replay { grid-column: 1 / -1; flex-direction: column; gap: 10px; }
-@media (max-width: 900px) {
-  .replay-header { right: 16px; }
-  .timeline { top: auto; left: 0; width: 100%; min-width: 0; height: min(42%, 360px); border-left: 0; border-top: 1px solid var(--workbench-border-subtle); padding: 12px 18px; }
-}
+.timeline-empty { flex: 1 1 auto; min-height: 80px; text-align: center; font-size: 0.8rem; }
+.empty-replay { position: absolute; inset: 0; flex-direction: column; gap: 10px; text-align: center; background: radial-gradient(circle at center, color-mix(in srgb, var(--workbench-surface) 60%, transparent), transparent 54%); }
+.empty-replay strong { color: var(--workbench-text-secondary); font-size: 1rem; }
+.empty-replay span { max-width: 360px; font-size: 0.82rem; line-height: 1.5; }
+.empty-replay button { margin-top: 4px; min-height: 34px; padding: 0 14px; border: 1px solid var(--workbench-accent); border-radius: 5px; background: var(--workbench-accent); color: #fff; cursor: pointer; }
+.empty-replay button:hover, .empty-replay button:focus-visible { outline: none; filter: brightness(1.08); }
 @media (max-width: 700px) {
   .replay-header h2, .replay-subtitle { display: none; }
+  .replay-sidebar { --drawer-width: min(280px, calc(100vw - 54px)); }
 }
 </style>
