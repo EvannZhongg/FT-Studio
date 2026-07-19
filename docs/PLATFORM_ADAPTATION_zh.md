@@ -8,10 +8,8 @@
 
 配套文档：
 
-- [当前架构](./ARCHITECTURE_CURRENT_zh.md)
 - [目标架构与项目结构](./ARCHITECTURE_TARGET_zh.md)
-- [路线 B 剩余重构计划](./REFACTOR_PLAN_ROUTE_B_zh.md)
-- [桌面 UI 与交互目标](./UI_INTERACTION_SPEC_zh.md)
+- [后续目标](./FUTURE_GOALS_zh.md)
 
 ## 2. 建议支持基线
 
