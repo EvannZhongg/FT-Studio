@@ -40,3 +40,4 @@ esp32.c
 *.log*
 
 esp32.c
+.docs
