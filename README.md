@@ -75,11 +75,7 @@ The macOS build uses a Developer ID Application identity from the keychain when 
 
 ## Documentation
 
-- [Target architecture](docs/ARCHITECTURE_TARGET_zh.md)
-- [Future goals](docs/FUTURE_GOALS_zh.md)
-- [Django user service](docs/BACKEND_DJANGO_zh.md)
-- [Community product boundary](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
-- [Windows and macOS adaptation](docs/PLATFORM_ADAPTATION_zh.md)
+- [Device protocol](docs/DEVICE_PROTOCOL_zh.md)
 
 ## License
 

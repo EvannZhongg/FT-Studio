@@ -75,11 +75,7 @@ macOS 构建会优先使用钥匙串中的 Developer ID Application 证书；未
 
 ## 文档
 
-- [目标架构](docs/ARCHITECTURE_TARGET_zh.md)
-- [后续目标](docs/FUTURE_GOALS_zh.md)
-- [Django 用户服务](docs/BACKEND_DJANGO_zh.md)
-- [用户与社区产品边界](docs/COMMUNITY_CONTRACT_AND_UI_SPEC_zh.md)
-- [Windows 与 macOS 平台适配规范](docs/PLATFORM_ADAPTATION_zh.md)
+- [设备通信协议](docs/DEVICE_PROTOCOL_zh.md)
 
 ## License
 
