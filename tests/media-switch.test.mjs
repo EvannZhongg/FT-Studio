@@ -6,7 +6,8 @@ import {
   MEDIA_SWITCH_PHASES,
   canContinueMediaPosition,
   createSwitchOperationGate,
-  mediaKey
+  mediaKey,
+  resolveTargetMediaInput
 } from '../src/renderer/src/features/scoring/mediaSwitch.mjs'
 
 const binding = (overrides = {}) => ({
@@ -52,6 +53,24 @@ test('allows continuity only for aligned YouTube playback with the full same med
   )
   assert.deepEqual(MEDIA_SWITCH_PHASES.at(0), 'idle')
   assert.deepEqual(MEDIA_SWITCH_PHASES.at(-1), 'ready')
+})
+
+test('inherits the active media when the next contestant link is left empty', () => {
+  const active = binding({ canonical_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' })
+  assert.deepEqual(resolveTargetMediaInput('update', null, null, '', active), {
+    binding: active,
+    url: active.canonical_url
+  })
+  assert.equal(canContinueMediaPosition(active, active, 'aligned'), true)
+
+  const parsed = binding({
+    media_id: 'aqz-KE-bpKQ',
+    canonical_url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'
+  })
+  assert.deepEqual(
+    resolveTargetMediaInput('update', null, parsed, `  ${parsed.canonical_url}  `, active),
+    { binding: parsed, url: parsed.canonical_url }
+  )
 })
 
 test('routes every ScoreBoard contestant entry through one switch request boundary', () => {

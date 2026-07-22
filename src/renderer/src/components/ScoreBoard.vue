@@ -578,7 +578,8 @@ import {
 } from 'lucide-vue-next'
 import {
   canContinueMediaPosition,
-  createSwitchOperationGate
+  createSwitchOperationGate,
+  resolveTargetMediaInput
 } from '../features/scoring/mediaSwitch.mjs'
 import MediaPlayer from './MediaPlayer.vue'
 import ScoreOverlayPanel from './ScoreOverlayPanel.vue'
@@ -648,18 +649,24 @@ const currentBinding = computed(() => {
   return competitionStore.projectConfig.media?.[group]?.[contestant] || null
 })
 const playerBinding = computed(() => store.activePlayback?.binding || null)
-const targetMediaCandidate = computed(() =>
-  targetBindingChoice.value === 'existing' ? targetBinding.value : targetParsedMedia.value
+const targetMediaInput = computed(() =>
+  resolveTargetMediaInput(
+    targetBindingChoice.value,
+    targetBinding.value,
+    targetParsedMedia.value,
+    targetVideoUrl.value,
+    store.activePlayback?.binding || null
+  )
 )
 const canContinueTarget = computed(() => {
   const active = store.activePlayback?.binding
-  const target = targetMediaCandidate.value
+  const target = targetMediaInput.value.binding
   return canContinueMediaPosition(active, target, store.matchStatus.media)
 })
 const canConfirmTargetMedia = computed(() =>
   targetBindingChoice.value === 'existing'
     ? Boolean(targetBinding.value)
-    : Boolean(targetVideoUrl.value.trim())
+    : Boolean(targetMediaInput.value.url)
 )
 const windowOptions = computed(() => [
   { value: 'FULL_SCREEN', label: t('sb_opt_full_screen') },
@@ -1041,12 +1048,15 @@ const confirmTargetMedia = async () => {
   try {
     let binding = targetBinding.value
     if (targetBindingChoice.value === 'update' || !binding) {
-      if (!(await parseTargetDraft())) return
+      const enteredUrl = targetVideoUrl.value.trim()
+      if (enteredUrl && !(await parseTargetDraft())) return
+      const mediaUrl = enteredUrl || targetMediaInput.value.url
+      if (!mediaUrl) return
       try {
         binding = await store.saveMediaBinding(
           store.currentContext.groupName,
           switchTarget.value,
-          targetVideoUrl.value
+          mediaUrl
         )
       } catch {
         targetParseError.value = t('media_invalid')

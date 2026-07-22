@@ -133,13 +133,17 @@ export interface PlatformWindow {
   title: string
 }
 
+export type WindowCapabilityError = 'WINDOW_PERMISSION_DENIED' | 'PLATFORM_UNSUPPORTED'
+
 export interface WindowListResult {
   windows: PlatformWindow[]
+  error?: WindowCapabilityError
 }
 
 export interface WindowBoundsResult {
   found: boolean
   bounds: OverlayBounds | null
+  error?: WindowCapabilityError
 }
 
 export type PlatformWorkerRetryResult =
