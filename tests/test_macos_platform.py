@@ -42,6 +42,7 @@ class QuartzFixture:
 class MacOSPlatformTests(unittest.TestCase):
   def test_serial_adapter_requires_callout_port(self):
     adapter = MacOSDeviceAdapter()
+    self.assertEqual(adapter.ble_scan_timeout_seconds, 2.5)
     self.assertTrue(adapter.is_supported_serial_port(Port("/dev/cu.usbmodem", 0x303A)))
     self.assertFalse(adapter.is_supported_serial_port(Port("/dev/tty.usbmodem", 0x303A)))
     self.assertFalse(adapter.is_supported_serial_port(Port("/dev/cu.other", description="USB UART")))

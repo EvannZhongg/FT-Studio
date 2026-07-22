@@ -3,8 +3,58 @@ import test from 'node:test'
 import { createPinia, setActivePinia } from 'pinia'
 import { createServer } from 'vite'
 
+test('automatically retries an empty initial device scan', async () => {
+  const vite = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, hmr: false }
+  })
+  try {
+    const { useDeviceStore } = await vite.ssrLoadModule('/src/renderer/src/stores/deviceStore.js')
+    setActivePinia(createPinia())
+    const requests = []
+    globalThis.window = {
+      ftEngine: {
+        devices: {
+          scan: async (options) => {
+            requests.push(options)
+            if (requests.length === 1) return { devices: [], errors: [] }
+            return {
+              devices: [
+                {
+                  name: 'Counter-4116',
+                  address: 'ble-device-1',
+                  deviceId: 'ble-device-1',
+                  transport: 'BLE'
+                }
+              ],
+              errors: []
+            }
+          }
+        }
+      }
+    }
+
+    const store = useDeviceStore()
+    const devices = await store.scanDevices(false)
+
+    assert.equal(devices[0].name, 'Counter-4116')
+    assert.deepEqual(
+      requests.map((request) => request.flush),
+      [false, true]
+    )
+    assert.equal(store.scanStatus, 'ready')
+    assert.equal(store.errorCode, null)
+  } finally {
+    delete globalThis.window
+    await vite.close()
+  }
+})
+
 test('starts a match with the context selected on the device binding page', async () => {
-  const vite = await createServer({ configFile: false, server: { middlewareMode: true } })
+  const vite = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, hmr: false }
+  })
   try {
     const { useCompetitionStore } = await vite.ssrLoadModule(
       '/src/renderer/src/stores/competitionStore.js'

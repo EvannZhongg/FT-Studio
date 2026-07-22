@@ -16,6 +16,7 @@ except ImportError:
 
 class BleakSerialDeviceAdapter:
   use_ble_heartbeat = False
+  ble_scan_timeout_seconds = 1.5
 
   @property
   def ble_available(self) -> bool:

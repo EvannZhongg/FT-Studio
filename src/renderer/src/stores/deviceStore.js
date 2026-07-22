@@ -21,10 +21,11 @@ export const useDeviceStore = defineStore('devices', {
         const remarks = Object.fromEntries(
           Object.entries(settingsStore.appSettings.device_remarks || {})
         )
-        const result = await window.ftEngine.devices.scan({
-          flush: Boolean(isRefresh),
-          remarks
-        })
+        const requestScan = (flush) => window.ftEngine.devices.scan({ flush, remarks })
+        let result = await requestScan(Boolean(isRefresh))
+        if (!isRefresh && !result.errors?.length && !result.devices?.length) {
+          result = await requestScan(true)
+        }
         if (result.errors?.length && !result.devices?.length) {
           const firstError = result.errors[0]
           const error = new Error(firstError.message || firstError.code || 'Device scan failed')

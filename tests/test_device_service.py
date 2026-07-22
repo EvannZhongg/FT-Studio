@@ -57,12 +57,15 @@ class FakeBleAdapter:
   ble_available = True
   usb_available = False
   use_ble_heartbeat = False
+  ble_scan_timeout_seconds = 1.75
 
   def __init__(self):
     self.device = FakeBleDevice()
     self.client = None
+    self.scan_timeouts = []
 
   async def scan_ble(self, timeout):
+    self.scan_timeouts.append(timeout)
     return [(self.device, FakeAdvertisement())]
 
   async def find_ble(self, device_id, timeout):
@@ -159,6 +162,7 @@ class DeviceServiceTests(unittest.TestCase):
       service = DeviceService(adapter, emit)
       scanned = await service.scan(remarks={"ble-device-1": "Judge A"})
       self.assertEqual(scanned["devices"][0]["remark"], "Judge A")
+      self.assertEqual(adapter.scan_timeouts, [1.75])
 
       connected = await service.connect_many([{
         "connectionId": "judge-1-primary",
