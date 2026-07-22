@@ -1709,7 +1709,9 @@ const confirmOverlay = async () => {
   background: var(--workbench-surface-raised);
   padding: 25px;
   border-radius: 8px;
-  width: min(380px, calc(100vw - 48px));
+  width: 100%;
+  max-width: 380px;
+  min-width: 0;
   box-sizing: border-box;
   text-align: center;
   color: var(--workbench-text);
@@ -1718,8 +1720,7 @@ const confirmOverlay = async () => {
   }
 }
 .presentation-dialog {
-  width: min(520px, calc(100vw - 48px));
-  box-sizing: border-box;
+  max-width: 520px;
 }
 .presentation-modes {
   display: grid;
@@ -1782,7 +1783,7 @@ const confirmOverlay = async () => {
   font-size: 0.76rem;
 }
 .media-switch-dialog {
-  width: min(520px, calc(100vw - 48px));
+  max-width: 520px;
   text-align: left;
 }
 .media-switch-dialog h3 {
@@ -1826,6 +1827,7 @@ const confirmOverlay = async () => {
 }
 .modal-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
   margin-top: 20px;
