@@ -77,6 +77,8 @@ export const useMatchStore = defineStore('match', {
     async startMatch(config) {
       if (finalizeMatchPromise) await finalizeMatchPromise
       const competitionStore = useCompetitionStore()
+      const groupName = config.groupName
+      const contestantName = config.contestantName
       try {
         this.referees = {}
         config.referees.forEach((referee) => {
@@ -97,8 +99,8 @@ export const useMatchStore = defineStore('match', {
         const result = await window.ftEngine.match.start({
           sourceKey: competitionStore.projectConfig.id,
           stageId: competitionStore.activeStageId,
-          groupName: this.currentContext.groupName,
-          contestantName: this.currentContext.contestantName,
+          groupName,
+          contestantName,
           attemptNumber: competitionStore.activeAttemptNumber,
           referees: config.referees.map((referee) => ({
             index: referee.index,
@@ -108,6 +110,7 @@ export const useMatchStore = defineStore('match', {
             secondaryDeviceId: referee.mode === 'DUAL' ? referee.secondaryDeviceId || null : null
           }))
         })
+        this.currentContext = { groupName, contestantName }
         this.matchStatus = result.status
         this.matchActive = result.status.state === 'active'
       } catch (error) {
