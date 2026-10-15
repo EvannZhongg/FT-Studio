@@ -75,6 +75,7 @@ macOS 构建会优先使用钥匙串中的 Developer ID Application 证书；未
 
 ## 文档
 
+- [三语操作说明书（中文 / English / 日本語）、PDF 与操作示例](Manual_Doc/README.md)
 - [目标架构](docs/ARCHITECTURE_TARGET_zh.md)
 - [后续目标](docs/FUTURE_GOALS_zh.md)
 - [Django 用户服务](docs/BACKEND_DJANGO_zh.md)
