@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+import { expectedWindowCapabilityError } from '../src/main/ipc/platform-window-errors.mts'
+
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 }
@@ -25,4 +27,17 @@ test('routes manual Platform Worker recovery from both Renderer workflows', () =
   assert.equal(wizard.includes('workerRetryAvailable'), true)
   assert.equal(wizard.includes("code.startsWith('WORKER_')"), true)
   assert.equal(wizard.includes('await startScan(true)'), true)
+})
+
+test('normalizes expected window capability failures without hiding worker faults', () => {
+  assert.equal(
+    expectedWindowCapabilityError({ code: 'WINDOW_PERMISSION_DENIED' }),
+    'WINDOW_PERMISSION_DENIED'
+  )
+  assert.equal(
+    expectedWindowCapabilityError({ code: 'PLATFORM_UNSUPPORTED' }),
+    'PLATFORM_UNSUPPORTED'
+  )
+  assert.equal(expectedWindowCapabilityError({ code: 'WORKER_EXITED' }), null)
+  assert.equal(expectedWindowCapabilityError(new Error('unexpected')), null)
 })

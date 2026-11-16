@@ -6,6 +6,7 @@ ESPRESSIF_USB_VID = 0x303A
 
 class MacOSDeviceAdapter(BleakSerialDeviceAdapter):
   use_ble_heartbeat = False
+  ble_scan_timeout_seconds = 2.5
 
   def is_supported_serial_port(self, port_info) -> bool:
     path = str(getattr(port_info, "device", "") or "")

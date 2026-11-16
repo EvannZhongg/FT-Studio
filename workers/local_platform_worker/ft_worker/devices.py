@@ -421,7 +421,8 @@ class DeviceService:
 
     if self.adapter.ble_available:
       try:
-        discovered = await self.adapter.scan_ble(1.5 if flush else 0.8)
+        scan_timeout = float(getattr(self.adapter, "ble_scan_timeout_seconds", 1.5))
+        discovered = await self.adapter.scan_ble(scan_timeout)
         for device, advertisement in discovered:
           name = advertisement.local_name or device.name or "Unknown"
           service_uuids = [str(value).lower() for value in advertisement.service_uuids or []]

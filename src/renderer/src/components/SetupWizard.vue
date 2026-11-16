@@ -835,10 +835,9 @@ const finishSetup = async () => {
     store.selectStage(selectedStageToRun.value.id, selectedAttemptToRun.value)
     const groupName = selectedGroupToRun.value.name
     const contestantName = selectedGroupToRun.value.players?.[0] || ''
-    await matchStore.setMatchContext(groupName, contestantName)
     isConnecting.value = true
     showForceEntry.value = false
-    await matchStore.startMatch({ referees: bindings.value })
+    await matchStore.startMatch({ groupName, contestantName, referees: bindings.value })
     const timeout = setTimeout(() => { showForceEntry.value = true }, 8000)
     connectTimer = setInterval(async () => {
       if (checkAllConnected()) {

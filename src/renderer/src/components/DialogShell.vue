@@ -105,8 +105,11 @@ const handleKeydown = (event) => {
   background: rgba(15, 18, 16, 0.56);
 }
 .dialog-shell-surface {
+  min-width: 0;
+  max-width: 100%;
   max-height: calc(100vh - 48px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   box-sizing: border-box;
   border: 1px solid var(--border-strong);
   border-radius: 8px;

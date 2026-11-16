@@ -21,7 +21,10 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements-macos.txt
 
 rm -rf "${PROJECT_ROOT}/local-platform-worker" "${PROJECT_ROOT}/local-platform-worker.app"
-python3 -m PyInstaller --noconsole --onedir --name local-platform-worker --distpath . workers/local_platform_worker/worker_entry.py
+# The worker speaks JSONL over stdin/stdout. A windowed PyInstaller build
+# disables those standard streams on macOS, so Electron cannot complete the
+# system.hello handshake and every device operation fails with a generic error.
+python3 -m PyInstaller --console --onedir --name local-platform-worker --distpath . workers/local_platform_worker/worker_entry.py
 
 ENTITLEMENTS="${PROJECT_ROOT}/resources/entitlements-worker.plist"
 WORKER_DIR="${PROJECT_ROOT}/local-platform-worker"
