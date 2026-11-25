@@ -22,6 +22,8 @@ import {
   type MatchDeviceConnectionRequest
 } from './match-device-session.mts'
 import { MatchMediaSession } from './media-session.mts'
+import { MatchRankingPublisher } from './match-ranking.mts'
+import type { RankingSnapshot } from '../../shared/ranking.mts'
 import { MatchSessionError } from './match-session-error.mts'
 import {
   MatchSessionNotifier,
@@ -66,6 +68,9 @@ interface MatchSessionDependencies {
   ) => Promise<unknown>
   persistEvent: (input: MatchScoreEventWrite) => MatchScoreEventWriteResult
   activateContext?: (context: MatchPersistenceContext, occurredAt: string) => void
+  resetScores?: (context: MatchPersistenceContext, occurredAt: string) => void
+  getRankingSnapshot?: (context: MatchPersistenceContext) => RankingSnapshot | null
+  emitRankingUpdate?: (snapshot: RankingSnapshot | null) => void
   transitionContext?: (
     current: MatchPersistenceContext,
     next: MatchPersistenceContext,
@@ -121,6 +126,7 @@ export class MatchSessionService {
   private readonly deviceSession: MatchDeviceSession
   private readonly mediaSession: MatchMediaSession
   private readonly notifier: MatchSessionNotifier
+  private readonly ranking: MatchRankingPublisher
   private readonly referees = new Map<number, RefereeRuntime>()
   private state: MatchSessionState = 'idle'
   private persistence: MatchStatusUpdate['persistence'] = 'idle'
@@ -149,8 +155,19 @@ export class MatchSessionService {
       emitRefereeUpdate: dependencies.emitRefereeUpdate,
       emitContextUpdate: dependencies.emitContextUpdate,
       emitStatusUpdate: dependencies.emitStatusUpdate,
+      emitRankingUpdate: dependencies.emitRankingUpdate,
       onError: dependencies.onError
     })
+    this.ranking = new MatchRankingPublisher(
+      () => this.getRankingSnapshot(),
+      (snapshot) => this.notifier.ranking(snapshot),
+      (error) => this.notifier.error('MATCH_RANKING_READ_FAILED', error)
+    )
+  }
+
+  getRankingSnapshot(): RankingSnapshot | null {
+    if (!['active', 'stopping', 'completed'].includes(this.state) || !this.sourceKey) return null
+    return this.dependencies.getRankingSnapshot?.(this.currentPersistenceContext()) ?? null
   }
 
   getStatus(): MatchStatusUpdate {
@@ -187,6 +204,7 @@ export class MatchSessionService {
 
     const operationVersion = ++this.operationVersion
     this.state = 'starting'
+    this.ranking.flush()
     this.persistence = 'idle'
     this.worker = 'reconnecting'
     this.media = 'not_ready'
@@ -201,18 +219,19 @@ export class MatchSessionService {
       this.configure(normalized)
 
       const requests = this.deviceSession.configure(normalized.referees)
+      this.activatePersistenceContext()
       if (requests.length === 0) {
-        this.activatePersistenceContext()
         this.worker = 'ready'
         this.state = 'active'
+        this.ranking.flush()
         this.publishStatus()
         return { connections: [], status: this.getStatus() }
       }
 
       const result = await this.connectConfigured(requests)
       this.assertCurrentOperation(operationVersion)
-      this.activatePersistenceContext()
       this.state = 'active'
+      this.ranking.flush()
       this.updateWorkerStatusFromConnections()
       this.publishStatus()
       return { ...result, status: this.getStatus() }
@@ -222,6 +241,7 @@ export class MatchSessionService {
         throw new MatchSessionError('MATCH_START_CANCELLED', 'Match start was cancelled')
       }
       this.state = 'failed'
+      this.ranking.flush()
       this.worker = 'error'
       this.errorCode = stableErrorCode(error, 'MATCH_START_FAILED')
       this.publishStatus()
@@ -259,6 +279,7 @@ export class MatchSessionService {
       this.state = 'failed'
       this.errorCode = 'MATCH_STOP_FAILED'
     }
+    this.ranking.flush()
     this.publishStatus()
   }
 
@@ -382,6 +403,7 @@ export class MatchSessionService {
       this.media = this.mediaSession.capture(this.currentMediaContext()).status
       this.mediaSession.commitTransition()
       this.emitContext({ groupName, contestantName })
+      this.ranking.flush()
       this.publishStatus()
       return {
         group_name: groupName,
@@ -413,10 +435,23 @@ export class MatchSessionService {
     try {
       const result = await this.deviceSession.resetAll()
       this.assertCurrentOperation(operationVersion)
+      const timestamp = this.now().toISOString()
+      try {
+        this.dependencies.resetScores?.(this.currentPersistenceContext(), timestamp)
+      } catch (error) {
+        this.persistence = 'error'
+        this.reportError('MATCH_RESET_PERSIST_FAILED', error)
+        throw error
+      }
       for (const runtime of this.referees.values()) {
         runtime.scoring = resetRefereeScoringState(runtime.scoring)
         this.emitReferee(runtime)
       }
+      this.persistence = 'saved'
+      this.lastSavedAt = timestamp
+      this.errorCode = null
+      this.ranking.flush()
+      this.publishStatus()
       return result
     } finally {
       this.controlOperationPending = false
@@ -426,6 +461,7 @@ export class MatchSessionService {
   completeCurrent(): boolean {
     if (this.state !== 'active') return false
     this.dependencies.completeContext?.(this.currentPersistenceContext(), this.now().toISOString())
+    this.ranking.flush()
     return true
   }
 
@@ -435,6 +471,7 @@ export class MatchSessionService {
       this.currentPersistenceContext(),
       this.now().toISOString()
     )
+    this.ranking.flush()
     return true
   }
 
@@ -603,6 +640,7 @@ export class MatchSessionService {
       runtime.scoring = next
       this.lastSavedAt = timestamp
       this.emitReferee(runtime)
+      this.ranking.schedule()
     }
     this.publishStatus()
   }

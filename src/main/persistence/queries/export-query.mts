@@ -5,6 +5,7 @@ import type {
 import type { CompetitionRepository } from '../repositories/competition-repository.mts'
 import { findFirstStage, resolveCompetition } from '../sqlite/competition-context.mts'
 import type { SqliteConnection } from '../sqlite/connection.mts'
+import { RankingQuery } from './ranking-query.mts'
 
 export class ExportQuery {
   private readonly connection: SqliteConnection
@@ -75,19 +76,35 @@ export class ExportQuery {
       const snapshot: CompetitionExportSnapshot = {
         sourceKey: config.id,
         competitionName: config.name,
-        groups: config.groups.map((group) => ({
-          name: group.name,
-          refCount: group.refCount,
-          contestants: group.players.map((contestantName) => ({
-            name: contestantName,
-            referees: group.referees.map((referee) => ({
-              index: referee.index,
-              name: referee.name,
-              mode: referee.mode,
-              events: events.get(exportEventKey(group.name, contestantName, referee.index)) || []
+        groups: config.groups.map((group) => {
+          const current = new RankingQuery(this.connection).get({
+            sourceKey,
+            stageId: stage.id,
+            groupName: group.name,
+            contestantName: '',
+            attemptNumber: 1
+          })
+          const scores = new Map(
+            current?.contestants.map((contestant) => [contestant.name, contestant]) || []
+          )
+          return {
+            name: group.name,
+            refCount: group.refCount,
+            contestants: group.players.map((contestantName) => ({
+              name: contestantName,
+              referees: group.referees.map((referee) => ({
+                index: referee.index,
+                name: referee.name,
+                mode: referee.mode,
+                currentScore:
+                  scores.get(contestantName)?.status === 'invalidated'
+                    ? null
+                    : (scores.get(contestantName)?.scores[referee.index] ?? null),
+                events: events.get(exportEventKey(group.name, contestantName, referee.index)) || []
+              }))
             }))
-          }))
-        }))
+          }
+        })
       }
       database.exec('COMMIT')
       return snapshot

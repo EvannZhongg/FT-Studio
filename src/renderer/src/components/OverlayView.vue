@@ -12,8 +12,8 @@
             {{ store.currentContext.contestantName || $t('ov_contestant_waiting') }}
           </span>
 
-          <button class="btn-dock" :disabled="contextChangePending" @click="changePlayer(1)" :title="$t('ov_btn_next')">Next ▶</button>
-          <button class="btn-dock btn-dock-reset" :disabled="contextChangePending" @click="store.resetAll()" :title="$t('ov_btn_reset')">R</button>
+          <button class="btn-dock" :disabled="contextChangePending" @click="runOverlayAction('next')" :title="$t('ov_btn_next')">Next ▶</button>
+          <button class="btn-dock btn-dock-reset" :disabled="contextChangePending" @click="runOverlayAction('reset')" :title="$t('ov_btn_reset')">R</button>
           <button class="btn-dock" @click="toggleWaveform" :class="{ active: showWaveform }" :title="$t('ov_btn_wave')">📈</button>
           <button class="btn-dock" @click="toggleSettings" :class="{ active: showSettings }" :title="$t('ov_btn_settings')">⚙️</button>
           <button class="btn-dock btn-dock-exit" @click="closeOverlay" :title="$t('ov_btn_close')">✖</button>
@@ -44,11 +44,47 @@
           <input type="color" v-model="config.color">
         </div>
 
+        <fieldset class="ranking-settings">
+          <legend>{{ $t('ov_rank_title') }}</legend>
+          <div class="setting-row">
+            <label for="ranking-enabled">{{ $t('ov_rank_enabled') }}</label>
+            <input id="ranking-enabled" v-model="config.rankingEnabled" type="checkbox">
+          </div>
+          <div class="setting-row">
+            <label for="ranking-top-k">{{ $t('ov_rank_top_k') }}</label>
+            <input id="ranking-top-k" :value="config.rankingTopK" type="number" min="1" max="20" step="1"
+              :disabled="!config.rankingEnabled" @change="setRankingNumber('rankingTopK', $event, 1, 20)">
+          </div>
+          <div class="setting-row">
+            <label for="ranking-current">{{ $t('ov_rank_pin_current') }}</label>
+            <input id="ranking-current" v-model="config.rankingShowCurrent" type="checkbox" :disabled="!config.rankingEnabled">
+          </div>
+          <div class="setting-row">
+            <label for="ranking-scale">{{ $t('ov_rank_scale') }}</label>
+            <input id="ranking-scale" :value="config.rankingScale" type="number" min="1" max="100" step="1"
+              :disabled="!config.rankingEnabled" @change="setRankingNumber('rankingScale', $event, 1, 100)">
+          </div>
+          <div class="setting-row">
+            <label for="ranking-penalty">{{ $t('ov_rank_penalty') }}</label>
+            <input id="ranking-penalty" v-model="config.rankingPenalty" type="checkbox" :disabled="!config.rankingEnabled">
+          </div>
+          <p class="setting-hint">{{ $t('ov_rank_hint') }}</p>
+        </fieldset>
+
         <div class="setting-actions">
           <button class="btn-reset-style" @click="resetStyle">{{ $t('ov_btn_reset_def') }}</button>
           <button class="btn-close-settings" @click="showSettings = false">{{ $t('ov_btn_close_settings') }}</button>
         </div>
       </div>
+    </div>
+
+    <p v-if="overlayActionError" class="overlay-action-error" role="alert" @mouseenter="setIgnoreMouse(false)" @mouseleave="handleCardLeave">{{ $t(overlayActionError) }}</p>
+
+    <div v-if="config.rankingEnabled" class="score-card ranking-card"
+      :style="[getRankingStyle(), cardStyle]"
+      @mousedown="startRankingDrag" @mouseenter="setIgnoreMouse(false)" @mouseleave="handleCardLeave">
+      <LiveRankingPanel :snapshot="rankingSnapshot" :top-k="config.rankingTopK"
+        :show-current="config.rankingShowCurrent" :scale-ratio="config.rankingScale" :include-penalty="config.rankingPenalty" />
     </div>
 
     <div
@@ -136,6 +172,7 @@ import { useCompetitionStore } from '../stores/competitionStore'
 import { useMatchStore } from '../stores/matchStore'
 import RefereeScoreDisplay from './RefereeScoreDisplay.vue'
 import WaveformWidget from './WaveformWidget.vue'
+import LiveRankingPanel from './LiveRankingPanel.vue'
 
 const store = useMatchStore()
 const competitionStore = useCompetitionStore()
@@ -160,7 +197,9 @@ const showWaveform = ref(true)
 const showSettings = ref(false)
 const isDockVisible = ref(false)
 const contextChangePending = ref(false)
+const overlayActionError = ref('')
 const waveformCardRef = ref(null)
+const rankingSnapshot = ref(null)
 let resizeObserver = null
 
 const previousScores = {}
@@ -172,7 +211,12 @@ const defaultConfig = {
   opacity: 0.85,
   color: '#141414',
   displayMode: 'SPLIT',
-  fontScale: 1
+  fontScale: 1,
+  rankingEnabled: false,
+  rankingTopK: 3,
+  rankingShowCurrent: true,
+  rankingScale: 60,
+  rankingPenalty: true
 }
 const config = reactive({ ...defaultConfig })
 
@@ -182,6 +226,13 @@ const loadConfig = () => {
     try {
       const parsed = JSON.parse(saved)
       Object.assign(config, parsed)
+      for (const key of ['rankingTopK', 'rankingScale']) {
+        const max = key === 'rankingTopK' ? 20 : 100
+        if (!Number.isInteger(config[key]) || config[key] < 1 || config[key] > max) config[key] = defaultConfig[key]
+      }
+      for (const key of ['rankingEnabled', 'rankingShowCurrent', 'rankingPenalty']) {
+        if (typeof config[key] !== 'boolean') config[key] = defaultConfig[key]
+      }
     } catch {
       // Ignore invalid persisted overlay config.
     }
@@ -192,6 +243,11 @@ watch(config, (newVal) => {
 })
 const resetStyle = () => Object.assign(config, defaultConfig)
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+const setRankingNumber = (key, event, min, max) => {
+  const value = Number(event.target.value)
+  config[key] = Number.isFinite(value) ? clamp(Math.round(value), min, max) : defaultConfig[key]
+  event.target.value = config[key]
+}
 
 const cardStyle = computed(() => {
   const hex = config.color
@@ -304,6 +360,7 @@ let removeInitialDataListener = () => {}
 let removeRefereeUpdateListener = () => {}
 let removeContextUpdateListener = () => {}
 let removeStatusUpdateListener = () => {}
+let removeRankingUpdateListener = () => {}
 if (window.ftOverlay) {
   removeInitialDataListener = window.ftOverlay.onInitialData((data) => {
     if (data.referees) {
@@ -338,6 +395,12 @@ if (window.ftOverlay) {
   removeStatusUpdateListener = window.ftOverlay.onStatusUpdated((status) => {
     store.matchStatus = status
     store.matchActive = status.state === 'starting' || status.state === 'active'
+  })
+  removeRankingUpdateListener = window.ftOverlay.onRankingUpdated((snapshot) => {
+    rankingSnapshot.value = snapshot
+    if (snapshot) {
+      store.currentContext = { groupName: snapshot.context.groupName, contestantName: snapshot.context.contestantName }
+    }
   })
 }
 
@@ -439,6 +502,14 @@ const initCardPositions = () => {
     const dockW = 380
     cardPositions['dock'] = { x: (window.innerWidth - dockW) / 2, y: 0 }
   }
+  if (!cardPositions.ranking) {
+    let saved = null
+    try { saved = JSON.parse(localStorage.getItem('overlay_ranking_position')) } catch { /* Invalid position. */ }
+    cardPositions.ranking = {
+      x: clamp(Number.isFinite(saved?.x) ? saved.x : window.innerWidth - 350, 0, Math.max(0, window.innerWidth - 320)),
+      y: clamp(Number.isFinite(saved?.y) ? saved.y : 80, 0, Math.max(0, window.innerHeight - 180))
+    }
+  }
 }
 
 const setupResizeObserver = () => {
@@ -484,6 +555,8 @@ onUnmounted(() => {
   removeRefereeUpdateListener()
   removeContextUpdateListener()
   removeStatusUpdateListener()
+  removeRankingUpdateListener()
+  Object.values(realTimeData).forEach((entry) => Object.values(entry).forEach((slot) => clearTimeout(slot.timer)))
 })
 
 const closeOverlay = () => window.ftOverlay?.close()
@@ -511,9 +584,21 @@ const getCardStyle = (key) => {
   }
 }
 
+const getRankingStyle = () => {
+  const pos = cardPositions.ranking || { x: 20, y: 80 }
+  return { left: `clamp(0px, ${pos.x}px, max(0px, calc(100vw - 320px)))`,
+    top: `clamp(0px, ${pos.y}px, max(0px, calc(100vh - 180px)))`,
+    maxHeight: `calc(100vh - clamp(0px, ${pos.y}px, max(0px, calc(100vh - 180px))) - 12px)`,
+    zIndex: draggingRefKey === 'ranking' ? 9999 : 1001 }
+}
+
+const startRankingDrag = (event) => {
+  if (event.target.closest('.ranking-header')) startDrag(event, 'ranking')
+}
+
 const getDockZoneStyle = () => {
   const pos = cardPositions['dock'] || { x: 0, y: 0 }
-  return { left: `${pos.x}px`, top: `${pos.y}px`, transform: 'none' }
+  return { left: `clamp(0px, ${pos.x}px, max(0px, calc(100vw - 380px)))`, top: `${pos.y}px`, transform: 'none' }
 }
 
 const startResize = (e, key) => {
@@ -589,6 +674,11 @@ const onDrag = (e) => {
   // 强制 Dock 只能左右移动 (Y=0)
   if (draggingRefKey === 'dock') {
     finalY = 0
+    finalX = clamp(finalX, 0, Math.max(0, window.innerWidth - 380))
+  }
+  if (draggingRefKey === 'ranking') {
+    finalX = clamp(finalX, 0, Math.max(0, window.innerWidth - 320))
+    finalY = clamp(finalY, 0, Math.max(0, window.innerHeight - 180))
   }
 
   const newPos = { x: finalX, y: finalY }
@@ -599,38 +689,27 @@ const onDrag = (e) => {
 }
 
 const stopDrag = () => {
+  if (draggingRefKey === 'ranking') localStorage.setItem('overlay_ranking_position', JSON.stringify(cardPositions.ranking))
   isDragging = false
   isResizing = false
   draggingRefKey = null
 }
 
-const changePlayer = async (delta) => {
+const runOverlayAction = async (action) => {
   if (contextChangePending.value) return
-  const groupName = store.currentContext.groupName
-  const group = competitionStore.projectConfig.groups.find(g => g.name === groupName)
-  if (!group) return
-  const currentIdx = group.players.indexOf(store.currentContext.contestantName)
-
   contextChangePending.value = true
+  overlayActionError.value = ''
   try {
-    if (delta > 0 && store.currentContext.contestantName) {
-      store.broadcastPlayerScored(store.currentContext.contestantName)
-    }
-
-    const nextIdx = currentIdx + delta
-
-    if (nextIdx >= group.players.length && competitionStore.projectConfig.mode === 'FREE') {
-      const newPlayerName = `Player ${group.players.length + 1}`
-      group.players.push(newPlayerName)
-      await competitionStore.updateGroups(competitionStore.projectConfig.groups)
-      await store.setMatchContext(groupName, newPlayerName)
-    } else if (group.players[nextIdx]) {
-      await store.setMatchContext(groupName, group.players[nextIdx])
-    }
+    const result = await window.ftOverlay[action]()
+    if (action === 'next' && !result) overlayActionError.value = 'ov_action_last'
+  } catch (error) {
+    console.error('Overlay command failed:', error)
+    overlayActionError.value = 'ov_action_failed'
   } finally {
     contextChangePending.value = false
   }
 }
+
 </script>
 
 <style scoped lang="scss">
@@ -682,6 +761,16 @@ const changePlayer = async (delta) => {
 
 .score-card { --score-font-scale: 1; color: white; border-left: 4px solid #3498db; padding: 10px; cursor: grab; user-select: none; display: flex; flex-direction: column; transition: background-color 0.2s, box-shadow 0.2s; position: relative; &:active { cursor: grabbing; border-color: #2ecc71; } }
 .score-card:not(.waveform-card) { }
+.overlay-action-error { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); z-index: 10002; max-width: min(420px, 90vw); padding: 8px 12px; background: #252526; color: #ffb6ac; border: 1px solid #a94e43; border-radius: 4px; font-size: 12px; }
+.ranking-card { position: absolute; box-sizing: border-box; width: min(320px, 100vw); max-height: calc(100vh - 12px); overflow-y: auto; border-radius: 4px; cursor: default; }
+.ranking-card :deep(.ranking-header) { cursor: grab; }
+.ranking-card:active { border-left-color: #3498db; }
+.ranking-settings { margin: 16px 0 0; padding: 12px 0 0; border: 0; border-top: 1px solid #444; }
+.ranking-settings legend { padding: 0 6px 0 0; font-size: 13px; color: #ddd; }
+.ranking-settings input[type=number] { width: 64px; padding: 3px 6px; background: #333; border: 1px solid #555; border-radius: 3px; color: white; }
+.ranking-settings input:disabled { opacity: 0.45; }
+.setting-hint { margin: 2px 0; color: #aaa; font-size: 11px; line-height: 1.5; }
+.settings-panel { max-height: calc(100vh - 90px); overflow-y: auto; }
 .waveform-card { resize: both; overflow: hidden; min-width: 200px; min-height: 100px; padding: 0; padding-left: 5px; transform: translateZ(0); backface-visibility: hidden; }
 .resize-handle-visual { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; border-right: 3px solid #666; border-bottom: 3px solid #666; pointer-events: none; opacity: 0.6; }
 

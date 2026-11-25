@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { SqliteConnection } from '../sqlite/connection.mts'
+import { resetScoreSnapshots } from '../sqlite/score-snapshots.mts'
 
 export interface MatchProgressContext {
   sourceKey: string
@@ -33,6 +34,7 @@ export class MatchProgressRepository {
     try {
       const session = this.requireSession(database, context)
       this.activateSession(database, session, occurredAt, 'start')
+      this.resetExistingScores(database, session.match_session_id, occurredAt)
       database.exec('COMMIT')
     } catch (error) {
       database.exec('ROLLBACK')
@@ -66,6 +68,7 @@ export class MatchProgressRepository {
       }
       this.completeSession(database, currentSession, occurredAt, 'context_switch')
       this.activateSession(database, nextSession, occurredAt, 'context_switch')
+      this.resetExistingScores(database, nextSession.match_session_id, occurredAt)
       database.exec('COMMIT')
     } catch (error) {
       database.exec('ROLLBACK')
@@ -82,6 +85,30 @@ export class MatchProgressRepository {
     } catch (error) {
       database.exec('ROLLBACK')
       throw error
+    }
+  }
+
+  resetScores(context: MatchProgressContext, occurredAt: string): void {
+    const database = this.connection.requireDatabase()
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      const session = this.requireSession(database, context)
+      if (session.match_status !== 'active') throw new Error('MATCH_STATE_CONFLICT')
+      resetScoreSnapshots(database, session.match_session_id, occurredAt)
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  private resetExistingScores(database: DatabaseSync, sessionId: string, occurredAt: string): void {
+    if (
+      database
+        .prepare('SELECT 1 FROM score_snapshots WHERE match_session_id = ? LIMIT 1')
+        .get(sessionId)
+    ) {
+      resetScoreSnapshots(database, sessionId, occurredAt)
     }
   }
 

@@ -89,6 +89,10 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
       return platformWorkerManager.request(method, params, timeoutMs)
     },
     persistEvent: (input) => localData.requireDatabase().appendMatchScoreEvent(input),
+    resetScores: (context, occurredAt) =>
+      localData.requireDatabase().resetMatchScores(context, occurredAt),
+    getRankingSnapshot: (context) => localData.requireDatabase().getRankingSnapshot(context),
+    emitRankingUpdate: (snapshot) => sendMatchEvent(IPC_CHANNELS.match.rankingUpdated, snapshot),
     activateContext: (context, occurredAt) => {
       localData.requireDatabase().activateMatchSession(context, occurredAt)
     },
@@ -270,7 +274,7 @@ async function initializeDesktopApp({ icon }: DesktopBootstrapOptions): Promise<
   registerQueryIpc(ipcContext)
   registerExportIpc(ipcContext, exportService, (buildArtifact) => exportSaver.save(buildArtifact))
   registerWindowIpc(windows)
-  registerOverlayIpc(windows, () => matchSession.getStatus())
+  registerOverlayIpc(windows, matchSession, ipcContext)
   registerPlatformIpc(ipcContext, workerManager)
   registerDeviceIpc(ipcContext, workerManager)
   registerShortcutIpc(windows, globalShortcut)

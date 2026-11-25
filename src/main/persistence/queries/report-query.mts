@@ -30,23 +30,18 @@ export class ReportQuery {
       .requireDatabase()
       .prepare(
         `
-      SELECT * FROM (
         SELECT g.name AS group_name, p.name AS contestant_name,
           r.referee_index, e.current_total, e.total_plus, e.total_minus,
-          e.major_penalty,
-          ROW_NUMBER() OVER (
-            PARTITION BY p.id, r.id
-            ORDER BY e.system_time DESC, e.event_id DESC
-          ) AS row_position
+          e.major_penalty
         FROM competitions c
         JOIN stages s ON s.competition_id = c.id
         JOIN competition_groups g ON g.stage_id = s.id
         JOIN contestants p ON p.group_id = g.id
         JOIN match_sessions ms ON ms.contestant_id = p.id
-        JOIN score_events e ON e.match_session_id = ms.id
+        JOIN score_snapshots e ON e.match_session_id = ms.id
         JOIN referees r ON r.id = e.referee_id
-        WHERE c.id = ?
-      ) WHERE row_position = 1
+        WHERE c.id = ? AND s.position = 0 AND ms.attempt_number = 1
+          AND ms.status <> 'invalidated'
     `
       )
       .all(sourceKey) as Array<Record<string, string | number>>

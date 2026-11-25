@@ -117,6 +117,27 @@ export class MatchRepository {
         database.exec('ROLLBACK')
         return { status: 'duplicate' }
       }
+      database
+        .prepare(
+          `
+        INSERT INTO score_snapshots (
+          match_session_id, referee_id, event_id, total_plus, total_minus, current_total, major_penalty
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(match_session_id, referee_id) DO UPDATE SET
+          event_id = excluded.event_id, total_plus = excluded.total_plus,
+          total_minus = excluded.total_minus, current_total = excluded.current_total,
+          major_penalty = excluded.major_penalty
+      `
+        )
+        .run(
+          context.matchSessionId,
+          context.refereeId,
+          input.event.eventId,
+          input.event.totalPlus,
+          input.event.totalMinus,
+          input.event.currentTotal,
+          input.event.majorPenalty
+        )
       database.exec('COMMIT')
       return { status: 'inserted' }
     } catch (error) {

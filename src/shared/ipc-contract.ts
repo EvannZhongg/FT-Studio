@@ -18,6 +18,7 @@ import type {
   ReportExportRequest
 } from './contracts/export.mts'
 import type { CompetitionStageConfig, StageConfigInput } from './contracts/stage.mts'
+import type { RankingSnapshot } from './ranking.mts'
 
 export const IPC_CHANNELS = {
   app: {
@@ -63,7 +64,8 @@ export const IPC_CHANNELS = {
     invalidate: 'match:invalidate',
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
-    statusUpdated: 'match:status-updated'
+    statusUpdated: 'match:status-updated',
+    rankingUpdated: 'match:ranking-updated'
   },
   media: {
     parseUrl: 'media:parse-url',
@@ -100,6 +102,8 @@ export const IPC_CHANNELS = {
   },
   overlay: {
     open: 'overlay:open',
+    reset: 'overlay:reset',
+    next: 'overlay:next',
     close: 'overlay:close',
     ready: 'overlay:ready',
     setClickThrough: 'overlay:set-click-through',
@@ -427,6 +431,8 @@ export interface FtEngineApi {
 }
 
 export interface FtOverlayApi {
+  reset: () => Promise<void>
+  next: () => Promise<ContextTransitionResult | null>
   ready: () => void
   close: () => void
   setClickThrough: (enabled: boolean) => void
@@ -436,4 +442,5 @@ export interface FtOverlayApi {
     callback: (context: { groupName: string; contestantName: string }) => void
   ) => Unsubscribe
   onStatusUpdated: (callback: (status: MatchStatusUpdate) => void) => Unsubscribe
+  onRankingUpdated: (callback: (snapshot: RankingSnapshot | null) => void) => Unsubscribe
 }

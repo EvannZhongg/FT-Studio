@@ -320,6 +320,7 @@ test('keeps SRT files separate when one referee has multiple binding versions', 
                     index: 1,
                     name: 'Judge A',
                     mode: 'SINGLE',
+                    currentScore: null,
                     events: [
                       event('version-a', 'dQw4w9WgXcQ', 1000, 1),
                       event('version-b', 'aqz-KE-bpKQ', 2000, 2)

@@ -6,6 +6,7 @@ import {
   type OverlayInitialState,
   type Unsubscribe
 } from '../shared/ipc-contract'
+import type { RankingSnapshot } from '../shared/ranking.mts'
 
 type IpcChannels = typeof import('../shared/ipc-contract').IPC_CHANNELS
 
@@ -13,17 +14,23 @@ const IPC_CHANNELS = {
   match: {
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
-    statusUpdated: 'match:status-updated'
+    statusUpdated: 'match:status-updated',
+    rankingUpdated: 'match:ranking-updated'
   },
   overlay: {
     open: 'overlay:open',
+    reset: 'overlay:reset',
+    next: 'overlay:next',
     close: 'overlay:close',
     ready: 'overlay:ready',
     setClickThrough: 'overlay:set-click-through',
     initialData: 'overlay:initial-data'
   }
 } as const satisfies {
-  match: Pick<IpcChannels['match'], 'refereeUpdated' | 'contextUpdated' | 'statusUpdated'>
+  match: Pick<
+    IpcChannels['match'],
+    'refereeUpdated' | 'contextUpdated' | 'statusUpdated' | 'rankingUpdated'
+  >
   overlay: IpcChannels['overlay']
 }
 
@@ -42,6 +49,8 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): Unsubscr
 }
 
 const ftOverlay = {
+  reset: () => ipcRenderer.invoke(IPC_CHANNELS.overlay.reset),
+  next: () => ipcRenderer.invoke(IPC_CHANNELS.overlay.next),
   ready: () => ipcRenderer.send(IPC_CHANNELS.overlay.ready),
   close: () => ipcRenderer.send(IPC_CHANNELS.overlay.close),
   setClickThrough: (enabled) =>
@@ -55,7 +64,9 @@ const ftOverlay = {
       callback
     ),
   onStatusUpdated: (callback) =>
-    subscribe<MatchStatusUpdate>(IPC_CHANNELS.match.statusUpdated, callback)
+    subscribe<MatchStatusUpdate>(IPC_CHANNELS.match.statusUpdated, callback),
+  onRankingUpdated: (callback) =>
+    subscribe<RankingSnapshot | null>(IPC_CHANNELS.match.rankingUpdated, callback)
 } satisfies FtOverlayApi
 
 contextBridge.exposeInMainWorld('ftOverlay', ftOverlay)

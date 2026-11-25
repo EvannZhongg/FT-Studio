@@ -1,4 +1,4 @@
-export const LATEST_SCHEMA_VERSION = 4
+export const LATEST_SCHEMA_VERSION = 5
 export const DATABASE_APPLICATION_ID = 0x4654454e
 
 export const SCHEMA_SQL = `
@@ -205,6 +205,17 @@ export const SCHEMA_SQL = `
   END;
   CREATE INDEX score_events_session_time
     ON score_events(match_session_id, system_time, event_id);
+
+  CREATE TABLE score_snapshots (
+    match_session_id TEXT NOT NULL REFERENCES match_sessions(id) ON DELETE CASCADE,
+    referee_id TEXT NOT NULL REFERENCES referees(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL REFERENCES score_events(event_id),
+    total_plus INTEGER NOT NULL,
+    total_minus INTEGER NOT NULL,
+    current_total INTEGER NOT NULL,
+    major_penalty INTEGER NOT NULL,
+    PRIMARY KEY (match_session_id, referee_id)
+  ) STRICT;
 
   CREATE TABLE app_settings (
     key TEXT PRIMARY KEY,

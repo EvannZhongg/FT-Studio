@@ -12,6 +12,8 @@ import type {
   ParsedMediaUrl
 } from '../../shared/media/media-contract.mts'
 import { ExportQuery } from './queries/export-query.mts'
+import { RankingQuery } from './queries/ranking-query.mts'
+import type { RankingContext, RankingSnapshot } from '../../shared/ranking.mts'
 import { ReplayQuery, type ReplayEvent } from './queries/replay-query.mts'
 import { ReportQuery, type CompetitionReport } from './queries/report-query.mts'
 import { CompetitionRepository } from './repositories/competition-repository.mts'
@@ -175,8 +177,16 @@ export class LocalDatabase {
     return this.matches.appendScoreEvent(input)
   }
 
+  getRankingSnapshot(context: RankingContext): RankingSnapshot | null {
+    return new RankingQuery(this.connection).get(context)
+  }
+
   activateMatchSession(context: MatchProgressContext, occurredAt: string): void {
     this.matchProgress.activate(context, occurredAt)
+  }
+
+  resetMatchScores(context: MatchProgressContext, occurredAt: string): void {
+    this.matchProgress.resetScores(context, occurredAt)
   }
 
   transitionMatchSession(

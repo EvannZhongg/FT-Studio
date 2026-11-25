@@ -1,5 +1,6 @@
 import type { RefereeMode } from '../domain/scoring.mts'
 import type { MatchMediaStatus } from './media-session.mts'
+import type { RankingSnapshot } from '../../shared/ranking.mts'
 
 export interface MatchRefereeUpdate {
   index: number
@@ -24,6 +25,7 @@ interface MatchSessionNotifierDependencies {
   emitRefereeUpdate: (update: MatchRefereeUpdate) => void
   emitContextUpdate?: (context: { groupName: string; contestantName: string }) => void
   emitStatusUpdate?: (status: MatchStatusUpdate) => void
+  emitRankingUpdate?: (snapshot: RankingSnapshot | null) => void
   onError?: (code: string, error?: unknown) => void
 }
 
@@ -44,6 +46,10 @@ export class MatchSessionNotifier {
 
   status(value: MatchStatusUpdate): void {
     this.notifyRenderer(() => this.dependencies.emitStatusUpdate?.(value))
+  }
+
+  ranking(value: RankingSnapshot | null): void {
+    this.notifyRenderer(() => this.dependencies.emitRankingUpdate?.(value))
   }
 
   error(code: string, error?: unknown): void {

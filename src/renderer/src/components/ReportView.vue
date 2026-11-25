@@ -58,8 +58,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(row, idx) in sortedScaledRows" :key="row.player">
-              <td>{{ idx + 1 }}</td>
+            <tr v-for="row in sortedScaledRows" :key="row.player">
+              <td>{{ row.rank }}</td>
               <td class="fixed-col">{{ row.player }}</td>
               <td v-for="i in currentGroup.refCount" :key="i">
                 {{ row.scaledScores[i].toFixed(2) }}
@@ -217,6 +217,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useI18n } from 'vue-i18n'
 import { Info } from 'lucide-vue-next'
 import DialogShell from './DialogShell.vue'
+import { rankContestants } from '../../../shared/ranking.mts'
 
 const props = defineProps(['projectDir'])
 defineEmits(['back'])
@@ -301,9 +302,7 @@ const getRawScoreObj = (player, refIdx) => {
 const getRawDetail = (player, refIdx) => {
   const obj = getRawScoreObj(player, refIdx)
   if (!obj) return { total: '-', plus: '-', minus: '-', penalty: 0 }
-  // 读取 penalty，兼容不同大小写
-  const p = Number(obj.penalty) || Number(obj.MajorPenalty) || Number(obj.majorPenalty) || 0
-  return { total: obj.total, plus: obj.plus, minus: obj.minus, penalty: p }
+  return obj
 }
 
 const getRawAverage = (player) => {
@@ -316,114 +315,18 @@ const getRawAverage = (player) => {
   return sum / currentGroup.value.refCount
 }
 
-// --- 核心：重点扣分标准计算逻辑 ---
-const getStandardPenalty = (player) => {
-  if (!currentGroup.value) return 0
-
-  const gName = currentGroup.value.name
-  const refCount = Number(currentGroup.value.refCount) || 0
-  const referees = currentGroup.value.referees || []
-
-  const penalties = []
-
-  // 1. 收集所有双机裁判的扣分
-  for (let i = 1; i <= refCount; i++) {
-    const refConfig = referees.find(r => r.index === i)
-    // 仅统计双机模式裁判
-    if (refConfig && refConfig.mode === 'DUAL') {
-      const scoreObj = scoresData.value[gName]?.[player]?.[i]
-      if (scoreObj) {
-        const p = Number(scoreObj.penalty) || Number(scoreObj.MajorPenalty) || Number(scoreObj.majorPenalty) || 0
-        penalties.push(p)
-      } else {
-        penalties.push(0)
-      }
-    }
-  }
-
-  if (penalties.length === 0) return 0
-
-  // 2. 众数原则 (Majority Rule)
-  const counts = {}
-  penalties.forEach(p => {
-    counts[p] = (counts[p] || 0) + 1
-  })
-
-  let maxFreq = 0
-  Object.values(counts).forEach(c => {
-    if (c > maxFreq) maxFreq = c
-  })
-
-  // 3. 筛选众数
-  const candidates = Object.keys(counts)
-    .filter(k => counts[k] === maxFreq)
-    .map(Number)
-
-  // 4. 若有多个众数，取大值 (Max Value Rule)
-  if (candidates.length > 0) {
-    return Math.max(...candidates)
-  }
-
-  return 0
-}
-
-// --- 计算与排序 ---
+// The overlay, report and CSV share normalization, penalty and tie rules.
 const sortedScaledRows = computed(() => {
-  if (!currentGroup.value) return []
-  const players = currentGroup.value.players || []
-  const refCount = Number(currentGroup.value.refCount) || 0
-  const gName = currentGroup.value.name
-  const maxScores = {}
-
-  // 计算裁判最高分
-  for (let i = 1; i <= refCount; i++) {
-    let max = 0
-    players.forEach(p => {
-      const scoreObj = scoresData.value[gName]?.[p]?.[i]
-      const s = scoreObj ? scoreObj.total : 0
-      if (s > max) max = s
-    })
-    maxScores[i] = max
-  }
-
-  const rows = players.map(p => {
-    const scaledScores = {}
-    let sumScaled = 0
-    let validRefs = 0
-
-    for (let i = 1; i <= refCount; i++) {
-      const scoreObj = scoresData.value[gName]?.[p]?.[i]
-      const raw = scoreObj ? scoreObj.total : 0
-      const max = maxScores[i] || 0
-
-      let scaled = 0
-      if (max > 0) {
-        scaled = (raw / max) * scaleRatio.value
-      }
-
-      scaledScores[i] = scaled
-      sumScaled += scaled
-      validRefs++
-    }
-
-    let avgScore = validRefs > 0 ? (sumScaled / validRefs) : 0
-    let penaltyVal = 0
-
-    // 应用扣分逻辑
-    if (enablePenalty.value) {
-      penaltyVal = getStandardPenalty(p)
-      avgScore = avgScore - penaltyVal
-    }
-
-    return {
-      player: p,
-      scaledScores,
-      finalScore: avgScore,
-      penaltyVal
-    }
+  const group = currentGroup.value
+  if (!group) return []
+  const referees = Array.from({ length: group.refCount }, (_, offset) => {
+    const index = offset + 1
+    return { index, mode: group.referees.find((referee) => referee.index === index)?.mode || 'SINGLE' }
   })
-
-  return rows.sort((a, b) => b.finalScore - a.finalScore)
+  return rankContestants(group.players.map((player, position) => ({
+    id: player, name: player, position, status: 'completed',
+    scores: scoresData.value[group.name]?.[player] || {}
+  })), referees, scaleRatio.value, enablePenalty.value).map((row) => ({ ...row, player: row.name }))
 })
 
 // --- 导出逻辑 (Modal) ---

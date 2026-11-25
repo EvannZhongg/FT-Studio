@@ -47,7 +47,8 @@ const IPC_CHANNELS = {
     invalidate: 'match:invalidate',
     refereeUpdated: 'match:referee-updated',
     contextUpdated: 'match:context-updated',
-    statusUpdated: 'match:status-updated'
+    statusUpdated: 'match:status-updated',
+    rankingUpdated: 'match:ranking-updated'
   },
   media: {
     parseUrl: 'media:parse-url',
@@ -84,6 +85,8 @@ const IPC_CHANNELS = {
   },
   overlay: {
     open: 'overlay:open',
+    reset: 'overlay:reset',
+    next: 'overlay:next',
     close: 'overlay:close',
     ready: 'overlay:ready',
     setClickThrough: 'overlay:set-click-through',

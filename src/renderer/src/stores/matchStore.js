@@ -127,6 +127,7 @@ export const useMatchStore = defineStore('match', {
         referee.total = 0
         referee.plus = 0
         referee.minus = 0
+        referee.penalty = 0
       }
     },
 
@@ -181,8 +182,14 @@ export const useMatchStore = defineStore('match', {
       removeMatchRefereeListener = window.ftEngine.match.onRefereeUpdated((update) => {
         this.updateScore(update)
       })
-      removeMatchContextListener = window.ftEngine.match.onContextUpdated((context) => {
+      removeMatchContextListener = window.ftEngine.match.onContextUpdated(async (context) => {
         this.currentContext = context
+        const competitions = useCompetitionStore()
+        const group = competitions.activeGroups.find((value) => value.name === context.groupName)
+        if (!group?.players.includes(context.contestantName)) {
+          try { await competitions.fetchStages() } catch (error) { console.error('Refresh stage failed', error) }
+        }
+        await this.fetchScoredPlayers(context.groupName)
       })
       removeMatchStatusListener = window.ftEngine.match.onStatusUpdated((status) => {
         this.matchStatus = status

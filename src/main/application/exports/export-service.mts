@@ -1,3 +1,4 @@
+import { rankContestants, type RankingScore } from '../../../shared/ranking.mts'
 import { strToU8, zipSync } from 'fflate'
 import type {
   DetailExportRequest,
@@ -27,6 +28,7 @@ export interface ExportRefereeEvents {
   name: string
   mode: 'SINGLE' | 'DUAL'
   events: ExportScoreEvent[]
+  currentScore: RankingScore | null
 }
 
 export interface ExportContestantSnapshot {
@@ -254,15 +256,13 @@ function buildReportCsv(group: ExportGroupSnapshot, request: ReportExportRequest
       ]
     ]
     for (const contestant of group.contestants) {
-      const scores = refereeIndexes.map((index) => latestScore(contestant, index))
+      const scores = refereeIndexes.map((index) => currentScore(contestant, index))
       const average =
-        scores.reduce((total, score) => total + (score?.currentTotal || 0), 0) / group.refCount
+        scores.reduce((total, score) => total + (score?.total || 0), 0) / group.refCount
       rows.push([
         contestant.name,
         ...scores.map((score) =>
-          score
-            ? `${score.currentTotal} (+${score.totalPlus}/-${score.totalMinus}/-${score.majorPenalty})`
-            : '-'
+          score ? `${score.total} (+${score.plus}/-${score.minus}/-${score.penalty})` : '-'
         ),
         average.toFixed(2)
       ])
@@ -270,33 +270,28 @@ function buildReportCsv(group: ExportGroupSnapshot, request: ReportExportRequest
     return rows.map(csvRow).join('\n')
   }
 
-  const maxima = new Map<number, number>()
-  for (const index of refereeIndexes) {
-    maxima.set(
-      index,
-      Math.max(
-        0,
-        ...group.contestants.map((contestant) => latestScore(contestant, index)?.currentTotal || 0)
-      )
-    )
-  }
-  const scoreRows = group.contestants.map((contestant, position) => {
-    const scaledScores = refereeIndexes.map((index) => {
-      const maximum = maxima.get(index) || 0
-      const total = latestScore(contestant, index)?.currentTotal || 0
-      return maximum > 0 ? (total / maximum) * request.scaleRatio : 0
-    })
-    const penalty = request.includePenalty ? standardPenalty(contestant) : 0
-    return {
-      contestant: contestant.name,
+  const refereeModes = refereeIndexes.map((index) => ({
+    index,
+    mode:
+      group.contestants
+        .flatMap((contestant) => contestant.referees)
+        .find((referee) => referee.index === index)?.mode || ('SINGLE' as const)
+  }))
+  const scoreRows = rankContestants(
+    group.contestants.map((contestant, position) => ({
+      id: contestant.name,
+      name: contestant.name,
       position,
-      scaledScores,
-      penalty,
-      finalScore: scaledScores.reduce((total, score) => total + score, 0) / group.refCount - penalty
-    }
-  })
-  scoreRows.sort(
-    (left, right) => right.finalScore - left.finalScore || left.position - right.position
+      status: 'completed' as const,
+      scores: Object.fromEntries(
+        contestant.referees
+          .filter((referee) => referee.currentScore !== null)
+          .map((referee) => [referee.index, referee.currentScore!])
+      )
+    })),
+    refereeModes,
+    request.scaleRatio,
+    request.includePenalty
   )
   const rows: Array<Array<string | number>> = [
     [
@@ -307,41 +302,23 @@ function buildReportCsv(group: ExportGroupSnapshot, request: ReportExportRequest
       'Final Score'
     ]
   ]
-  scoreRows.forEach((row, index) => {
+  scoreRows.forEach((row) => {
     rows.push([
-      index + 1,
-      row.contestant,
-      ...row.scaledScores.map((score) => score.toFixed(2)),
-      ...(request.includePenalty ? [row.penalty] : []),
+      row.rank,
+      row.name,
+      ...refereeIndexes.map((index) => row.scaledScores[index].toFixed(2)),
+      ...(request.includePenalty ? [row.penaltyVal] : []),
       row.finalScore.toFixed(2)
     ])
   })
   return rows.map(csvRow).join('\n')
 }
 
-function standardPenalty(contestant: ExportContestantSnapshot): number {
-  const penalties = contestant.referees
-    .filter((referee) => referee.mode === 'DUAL')
-    .map((referee) => latestEvent(referee.events)?.majorPenalty || 0)
-  if (penalties.length === 0) return 0
-  const counts = new Map<number, number>()
-  for (const penalty of penalties) counts.set(penalty, (counts.get(penalty) || 0) + 1)
-  const maximumFrequency = Math.max(...counts.values())
-  return Math.max(
-    ...[...counts].filter(([, count]) => count === maximumFrequency).map(([value]) => value)
-  )
-}
-
-function latestScore(
+function currentScore(
   contestant: ExportContestantSnapshot,
   refereeIndex: number
-): ExportScoreEvent | null {
-  const referee = contestant.referees.find((value) => value.index === refereeIndex)
-  return referee ? latestEvent(referee.events) : null
-}
-
-function latestEvent(events: ExportScoreEvent[]): ExportScoreEvent | null {
-  return events.length > 0 ? normalizeEvents(events).at(-1) || null : null
+): RankingScore | null {
+  return contestant.referees.find((value) => value.index === refereeIndex)?.currentScore ?? null
 }
 
 interface SrtEntry {
